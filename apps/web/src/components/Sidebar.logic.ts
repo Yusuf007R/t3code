@@ -10,7 +10,7 @@ import {
 import type { SidebarThreadSummary, Thread } from "../types";
 import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "../lib/utils";
-import { isLatestTurnSettled } from "../session-logic";
+import { isLatestRunSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
@@ -64,9 +64,7 @@ export async function archiveSelectedThreadEntries<
     const result = await input.archive(entry, () => {
       didArchive = true;
     });
-    if (didArchive || result._tag === "Success") {
-      archivedThreadKeys.push(entry.threadKey);
-    }
+    if (didArchive || result._tag === "Success") archivedThreadKeys.push(entry.threadKey);
     if (result._tag === "Success") continue;
     const failure = result as Extract<TResult, { readonly _tag: "Failure" }>;
     if (didArchive) {
@@ -92,6 +90,21 @@ export function buildMultiSelectThreadContextMenuItems(input: {
     },
     { id: "delete", label: `Delete (${input.count})`, destructive: true },
   ];
+}
+
+export function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "lineage">): boolean {
+  return thread.lineage.relationshipToParent === "subagent";
+}
+
+export function getSidebarForkParentThreadId(
+  thread: Pick<SidebarThreadSummary, "forkedFrom" | "lineage">,
+) {
+  if (thread.lineage.relationshipToParent !== "fork") {
+    return null;
+  }
+  return thread.forkedFrom?.type === "run"
+    ? thread.forkedFrom.threadId
+    : thread.lineage.parentThreadId;
 }
 
 export interface ThreadStatusPill {
@@ -122,8 +135,8 @@ type ThreadStatusInput = Pick<
   | "hasPendingApprovals"
   | "hasPendingUserInput"
   | "interactionMode"
-  | "latestTurn"
-  | "session"
+  | "latestRun"
+  | "runtime"
 > & {
   lastVisitedAt?: string | undefined;
 };
@@ -221,8 +234,8 @@ export function useThreadJumpHintVisibility(): {
 }
 
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
-  if (!thread.latestTurn?.completedAt) return false;
-  const completedAt = Date.parse(thread.latestTurn.completedAt);
+  if (!thread.latestRun?.completedAt) return false;
+  const completedAt = Date.parse(thread.latestRun.completedAt);
   if (Number.isNaN(completedAt)) return false;
   if (!thread.lastVisitedAt) return false;
 
@@ -405,7 +418,7 @@ export type SidebarV2Status = "approval" | "input" | "working" | "failed" | "rea
 
 type SidebarV2StatusInput = Pick<
   SidebarThreadSummary,
-  "hasPendingApprovals" | "hasPendingUserInput" | "session"
+  "hasPendingApprovals" | "hasPendingUserInput" | "runtime"
 >;
 
 export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2Status {
@@ -415,10 +428,13 @@ export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2S
   if (thread.hasPendingUserInput) {
     return "input";
   }
-  if (thread.session?.status === "running" || thread.session?.status === "starting") {
+  if (
+    thread.runtime !== null &&
+    ["preparing", "queued", "starting", "running", "waiting"].includes(thread.runtime.status)
+  ) {
     return "working";
   }
-  if (thread.session?.status === "error") {
+  if (thread.runtime?.status === "failed") {
     return "failed";
   }
   return "ready";
@@ -473,13 +489,13 @@ export function sortThreadsForSidebarV2<
 
 type SettledTimestampInput = Pick<
   SidebarThreadSummary,
-  "settledAt" | "latestUserMessageAt" | "latestTurn" | "updatedAt"
+  "settledAt" | "latestUserMessageAt" | "latestRun" | "updatedAt"
 >;
 
 /** The timestamp a settled row sorts and labels by: settledAt when stamped
     (explicit settles), otherwise last activity — the same candidates
     threadLastActivityAt feeds the auto-settle window (user message plus all
-    latestTurn stamps), so a thread whose last activity was a turn completion
+    latestRun stamps), so a thread whose last activity was a run completion
     doesn't sort by an older message time. updatedAt is the final net. */
 export function resolveSettledTimestamp(thread: SettledTimestampInput): string | null {
   const settledAt = firstValidTimestamp(thread.settledAt);
@@ -488,9 +504,9 @@ export function resolveSettledTimestamp(thread: SettledTimestampInput): string |
   let latestMs = Number.NEGATIVE_INFINITY;
   for (const candidate of [
     thread.latestUserMessageAt,
-    thread.latestTurn?.requestedAt,
-    thread.latestTurn?.startedAt,
-    thread.latestTurn?.completedAt,
+    thread.latestRun?.requestedAt,
+    thread.latestRun?.startedAt,
+    thread.latestRun?.completedAt,
   ]) {
     if (candidate == null) continue;
     const parsed = Date.parse(candidate);
@@ -521,13 +537,13 @@ export function sortSettledThreadsForSidebarV2<
     last transition when the turn projection lags behind. Malformed
     timestamps fall through to the next candidate, not just missing ones. */
 export function resolveWorkingStartedAt(
-  thread: Pick<SidebarThreadSummary, "latestTurn" | "session">,
+  thread: Pick<SidebarThreadSummary, "latestRun" | "runtime">,
 ): string | null {
-  const turn = thread.latestTurn;
-  if (turn && turn.completedAt === null) {
-    return firstValidTimestamp(turn.startedAt, turn.requestedAt, thread.session?.updatedAt);
+  const run = thread.latestRun;
+  if (run && run.completedAt === null) {
+    return firstValidTimestamp(run.startedAt, run.requestedAt, thread.runtime?.updatedAt);
   }
-  return firstValidTimestamp(thread.session?.updatedAt);
+  return firstValidTimestamp(thread.runtime?.updatedAt);
 }
 
 export function formatWorkingDurationLabel(elapsedMs: number): string {
@@ -561,7 +577,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (thread.session?.status === "running") {
+  if (thread.runtime?.status === "running" || thread.runtime?.status === "waiting") {
     return {
       label: "Working",
       colorClass: "text-sky-600 dark:text-sky-300/80",
@@ -570,7 +586,11 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (thread.session?.status === "starting") {
+  if (
+    thread.runtime?.status === "preparing" ||
+    thread.runtime?.status === "starting" ||
+    thread.runtime?.status === "queued"
+  ) {
     return {
       label: "Connecting",
       colorClass: "text-sky-600 dark:text-sky-300/80",
@@ -582,7 +602,7 @@ export function resolveThreadStatusPill(input: {
   const hasPlanReadyPrompt =
     !thread.hasPendingUserInput &&
     thread.interactionMode === "plan" &&
-    isLatestTurnSettled(thread.latestTurn, thread.session) &&
+    isLatestRunSettled(thread.latestRun, thread.runtime) &&
     thread.hasActionableProposedPlan;
   if (hasPlanReadyPrompt) {
     return {
