@@ -3,6 +3,7 @@ import {
   archiveSelectedThreadEntries,
   buildMultiSelectThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
+  filterSidebarV2VisibleThreads,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
@@ -25,6 +26,7 @@ import {
   shouldNavigateAfterProjectRemoval,
   shouldClearThreadSelectionOnMouseDown,
   sortLogicalProjectsForSidebar,
+  sortSidebarV2ProjectGroups,
   sortSettledThreadsForSidebarV2,
   sortThreadsForSidebarV2,
   sortScopedProjectsForSidebar,
@@ -198,6 +200,55 @@ describe("resolveSidebarStageBadgeLabel", () => {
 });
 
 describe("sidebar thread lineage helpers", () => {
+  it("keeps only top-level, unarchived threads in the Sidebar V2 project scope", () => {
+    const parentId = ThreadId.make("thread-parent");
+    const projectId = ProjectId.make("project-visible");
+    const environmentId = EnvironmentId.make("environment-visible");
+    const root = makeThreadFixture({
+      id: parentId,
+      environmentId,
+      projectId,
+    });
+    const subagent = makeThreadFixture({
+      id: ThreadId.make("thread-subagent"),
+      environmentId,
+      projectId,
+      lineage: {
+        rootThreadId: parentId,
+        parentThreadId: parentId,
+        relationshipToParent: "subagent",
+      },
+    });
+    const fork = makeThreadFixture({
+      id: ThreadId.make("thread-fork"),
+      environmentId,
+      projectId,
+      lineage: {
+        rootThreadId: parentId,
+        parentThreadId: parentId,
+        relationshipToParent: "fork",
+      },
+    });
+    const archived = makeThreadFixture({
+      id: ThreadId.make("thread-archived"),
+      environmentId,
+      projectId,
+      archivedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const otherProject = makeThreadFixture({
+      id: ThreadId.make("thread-other-project"),
+      environmentId,
+      projectId: ProjectId.make("project-other"),
+    });
+
+    expect(
+      filterSidebarV2VisibleThreads(
+        [root, subagent, fork, archived, otherProject],
+        new Set([`${environmentId}:${projectId}`]),
+      ).map((thread) => thread.id),
+    ).toEqual([parentId, fork.id]);
+  });
+
   it("identifies subagent threads so the sidebar can hide them", () => {
     const parentId = ThreadId.make("thread-parent");
     const subagent = makeThreadFixture({
@@ -1447,6 +1498,54 @@ describe("sortLogicalProjectsForSidebar", () => {
     expect(sortLogicalProjectsForSidebar(projects, threads, "manual")).toEqual(projects);
     expect(
       sortLogicalProjectsForSidebar(projects, threads, "updated_at").map(
+        (project) => project.projectKey,
+      ),
+    ).toEqual(["logical-newer", "logical-older"]);
+  });
+});
+
+describe("sortSidebarV2ProjectGroups", () => {
+  it("does not let a hidden subagent thread reorder projects", () => {
+    const olderProjectId = ProjectId.make("project-older");
+    const newerProjectId = ProjectId.make("project-newer");
+    const olderRootThreadId = ThreadId.make("thread-older-root");
+    const projects = [
+      {
+        ...makeProject({ id: olderProjectId, title: "A older project" }),
+        projectKey: "logical-older",
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: olderProjectId }],
+      },
+      {
+        ...makeProject({ id: newerProjectId, title: "Z newer project" }),
+        projectKey: "logical-newer",
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: newerProjectId }],
+      },
+    ];
+    const threads = [
+      makeThread({
+        id: olderRootThreadId,
+        projectId: olderProjectId,
+        updatedAt: "2026-03-09T10:01:00.000Z",
+      }),
+      makeThread({
+        id: ThreadId.make("thread-newer-root"),
+        projectId: newerProjectId,
+        updatedAt: "2026-03-09T10:05:00.000Z",
+      }),
+      makeThread({
+        id: ThreadId.make("thread-hidden-subagent"),
+        projectId: olderProjectId,
+        updatedAt: "2026-03-09T10:10:00.000Z",
+        lineage: {
+          rootThreadId: olderRootThreadId,
+          parentThreadId: olderRootThreadId,
+          relationshipToParent: "subagent",
+        },
+      }),
+    ];
+
+    expect(
+      sortSidebarV2ProjectGroups(projects, threads, "updated_at").map(
         (project) => project.projectKey,
       ),
     ).toEqual(["logical-newer", "logical-older"]);
