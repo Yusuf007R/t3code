@@ -9,6 +9,11 @@ import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import {
+  canContinueVoiceOperation,
+  voiceInputUnavailableReason,
+  type VoiceInputAvailability,
+} from "./ComposerVoiceInput.logic";
 
 const preferredRecorderMimeType = (): string | undefined => {
   const candidates = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"];
@@ -37,13 +42,14 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
     typeof navigator !== "undefined" &&
     navigator.mediaDevices?.getUserMedia !== undefined &&
     typeof MediaRecorder !== "undefined";
-  const unavailableReason = !props.hasCodexOauth
-    ? "Voice input requires a Codex ChatGPT OAuth login"
-    : !captureSupported
-      ? "Voice input is not supported in this browser"
-      : props.disabled
-        ? "Voice input is unavailable while the composer is disabled"
-        : null;
+  const availability: VoiceInputAvailability = {
+    hasCodexOauth: props.hasCodexOauth,
+    captureSupported,
+    disabled: props.disabled,
+  };
+  const availabilityRef = useRef(availability);
+  availabilityRef.current = availability;
+  const unavailableReason = voiceInputUnavailableReason(availability);
 
   const releaseCapture = useCallback((stopRecorder = false) => {
     const recorder = recorderRef.current;
@@ -67,6 +73,13 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
     [releaseCapture],
   );
 
+  useEffect(() => {
+    if (unavailableReason === null) return;
+    operationRef.current += 1;
+    releaseCapture(true);
+    setState("idle");
+  }, [releaseCapture, unavailableReason]);
+
   const transcribe = async (audioBlob: Blob, operation: number) => {
     setState("transcribing");
     try {
@@ -86,7 +99,16 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
         ),
       );
       const text = result.text.trim();
-      if (operation === operationRef.current && text.length > 0) props.onTranscribed(text);
+      if (
+        text.length > 0 &&
+        canContinueVoiceOperation({
+          operation,
+          currentOperation: operationRef.current,
+          availability: availabilityRef.current,
+        })
+      ) {
+        props.onTranscribed(text);
+      }
     } catch (error) {
       if (operation === operationRef.current) {
         toastManager.add({ type: "error", title: errorMessage(error) });
@@ -106,7 +128,13 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
     setState("requesting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (operation !== operationRef.current) {
+      if (
+        !canContinueVoiceOperation({
+          operation,
+          currentOperation: operationRef.current,
+          availability: availabilityRef.current,
+        })
+      ) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }

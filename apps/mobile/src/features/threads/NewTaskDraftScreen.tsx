@@ -13,7 +13,11 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 
-import { ComposerEditor, type ComposerEditorHandle } from "../../components/ComposerEditor";
+import {
+  ComposerEditor,
+  type ComposerEditorHandle,
+  type ComposerEditorSelection,
+} from "../../components/ComposerEditor";
 import {
   ComposerToolbarButton,
   ComposerToolbarRow,
@@ -50,6 +54,8 @@ import { useRemoteConnectionStatus } from "../../state/use-remote-environment-re
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { useCreateProjectThread } from "./use-project-actions";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
+import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 
 function formatWorkspaceLabel(input: {
   readonly workspaceMode: string;
@@ -96,6 +102,10 @@ export function NewTaskDraftScreen(props: {
       (environment) => environment.environmentId === selectedProject.environmentId,
     )?.connectionState === "connected";
   const promptInputRef = useRef<ComposerEditorHandle>(null);
+  const [promptSelection, setPromptSelection] = useState<ComposerEditorSelection>(() => ({
+    start: flow.prompt.length,
+    end: flow.prompt.length,
+  }));
   const loadedBranchesProjectKeyRef = useRef<string | null>(null);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [importingShareKey, setImportingShareKey] = useState<string | null>(null);
@@ -128,6 +138,29 @@ export function NewTaskDraftScreen(props: {
     isReturningToProjectPicker && !requestedInitialProjectAvailable;
   const isIncomingShareTransferPending = Boolean(
     incomingShare && cancelledIncomingShareId !== props.incomingShareId,
+  );
+  useEffect(() => {
+    const end = flow.prompt.length;
+    setPromptSelection((selection) => {
+      const start = Math.min(selection.start, end);
+      const selectionEnd = Math.min(selection.end, end);
+      return start === selection.start && selectionEnd === selection.end
+        ? selection
+        : { start, end: selectionEnd };
+    });
+  }, [flow.prompt.length]);
+  const handleVoiceTranscribed = useCallback(
+    (transcription: string) => {
+      const result = insertMobileVoiceTranscription({
+        value: flow.prompt,
+        selection: promptSelection,
+        transcription,
+      });
+      setPromptSelection(result.selection);
+      flow.setPrompt(result.text);
+      requestAnimationFrame(() => promptInputRef.current?.setSelection(result.selection));
+    },
+    [flow.prompt, flow.setPrompt, promptSelection],
   );
   usePreventRemove(
     (isIncomingShareTransferPending && !isProjectPickerReturnActive) || isCancellingShareImport,
@@ -943,6 +976,25 @@ export function NewTaskDraftScreen(props: {
     !isImportingShare &&
     !flow.submitting &&
     !(flow.workspaceMode === "worktree" && !flow.selectedBranchName);
+  const voiceInputVisible = flow.selectedProvider?.driver === "codex";
+  const hasCodexOauth =
+    voiceInputVisible &&
+    flow.selectedProvider.auth.type === "chatgpt" &&
+    flow.selectedProvider.auth.status === "authenticated";
+  const voiceInputDisabled =
+    isIncomingShareTransferPending || !isIncomingShareReady || isImportingShare || flow.submitting;
+  const voiceInput = flow.selectedModel ? (
+    <ComposerVoiceInput
+      connected={environmentConnected}
+      disabled={voiceInputDisabled}
+      environmentId={selectedProject.environmentId}
+      hasCodexOauth={hasCodexOauth}
+      providerInstanceId={flow.selectedModel.instanceId}
+      variant={isExpanded ? "toolbar" : "control-pill"}
+      visible={voiceInputVisible}
+      onTranscribed={handleVoiceTranscribed}
+    />
+  ) : null;
   const promptEditor = (
     <ComposerEditor
       ref={promptInputRef}
@@ -951,8 +1003,10 @@ export function NewTaskDraftScreen(props: {
       multiline
       scrollEnabled={isExpanded}
       value={flow.prompt}
+      selection={promptSelection}
       skills={flow.selectedProviderSkills}
       onChangeText={flow.setPrompt}
+      onSelectionChange={setPromptSelection}
       onFocus={() => setIsComposerFocused(true)}
       onBlur={() => setIsComposerFocused(false)}
       onPasteImages={(uris) => void handleNativePasteImages(uris)}
@@ -1098,12 +1152,15 @@ export function NewTaskDraftScreen(props: {
               ) : null}
               <View className={isExpanded ? undefined : "min-w-0 flex-1"}>{promptEditor}</View>
               {!isExpanded ? (
-                <ControlPill
-                  icon="arrow.up"
-                  variant="primary"
-                  disabled={!canStart}
-                  onPress={() => void handleStart()}
-                />
+                <View className="flex-row gap-1">
+                  {voiceInput}
+                  <ControlPill
+                    icon="arrow.up"
+                    variant="primary"
+                    disabled={!canStart}
+                    onPress={() => void handleStart()}
+                  />
+                </View>
               ) : null}
             </ComposerSurface>
 
@@ -1115,6 +1172,7 @@ export function NewTaskDraftScreen(props: {
                 >
                   {toolbarPills}
                 </ComposerToolbarScroller>
+                {voiceInput}
                 {startButton}
               </ComposerToolbarRow>
             ) : null}
@@ -1149,6 +1207,7 @@ export function NewTaskDraftScreen(props: {
             >
               {toolbarPills}
             </ComposerToolbarScroller>
+            {voiceInput}
             {startButton}
           </ComposerToolbarRow>
         </View>

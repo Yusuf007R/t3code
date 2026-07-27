@@ -3,6 +3,7 @@ import {
   EnvironmentHttpBadRequestError,
   EnvironmentHttpForbiddenError,
   EnvironmentHttpInternalServerError,
+  VOICE_AUDIO_MAX_BYTES,
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -16,7 +17,6 @@ import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
 import { deriveProviderInstanceConfigMap } from "../provider/Layers/ProviderInstanceRegistryHydration.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
-const MAX_VOICE_AUDIO_BYTES = 25 * 1024 * 1024;
 export const CODEX_TRANSCRIBE_URL = "https://chatgpt.com/backend-api/transcribe";
 
 const CODEX_BROWSER_USER_AGENT =
@@ -100,7 +100,7 @@ export const transcribeCodexAudio = Effect.fn("VoiceTranscription.transcribeCode
     if (input.audio.byteLength === 0) {
       return yield* new EnvironmentHttpBadRequestError({ message: "The recording is empty." });
     }
-    if (input.audio.byteLength > MAX_VOICE_AUDIO_BYTES) {
+    if (input.audio.byteLength > VOICE_AUDIO_MAX_BYTES) {
       return yield* new EnvironmentHttpBadRequestError({
         message: "The recording exceeds the 25 MB voice input limit.",
       });

@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { CodexSettings } from "@t3tools/contracts";
+import { CodexSettings, VOICE_AUDIO_MAX_BYTES } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -94,5 +94,30 @@ it.effect("posts audio to the Codex app transcription endpoint with OAuth header
 
     expect(observed).toBe(true);
     expect(result).toEqual({ text: "hello from voice" });
+  }),
+);
+
+it.effect("rejects oversized audio before making an outbound request", () =>
+  Effect.gen(function* () {
+    let observed = false;
+    const clientLayer = Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make(() =>
+        Effect.sync(() => {
+          observed = true;
+          throw new Error("The transcription client should not be called.");
+        }),
+      ),
+    );
+
+    const error = yield* transcribeCodexAudio({
+      credentials: { accessToken: "oauth-token", accountId: "account-123" },
+      audio: new Uint8Array(VOICE_AUDIO_MAX_BYTES + 1),
+      mimeType: "audio/webm",
+    }).pipe(Effect.provide(clientLayer), Effect.flip);
+
+    expect(observed).toBe(false);
+    expect(error._tag).toBe("EnvironmentHttpBadRequestError");
+    expect(error.message).toContain("25 MB");
   }),
 );

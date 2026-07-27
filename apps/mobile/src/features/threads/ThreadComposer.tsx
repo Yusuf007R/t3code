@@ -72,6 +72,8 @@ import {
 } from "../../lib/providerOptions";
 import { useComposerPathSearch } from "../../state/use-composer-path-search";
 import { ComposerCommandPopover, type ComposerCommandItem } from "./ComposerCommandPopover";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
+import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -343,6 +345,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const handleSelectionChange = useCallback((selection: ComposerEditorSelection) => {
     setComposerSelection(selection);
   }, []);
+  const handleVoiceTranscribed = useCallback(
+    (transcription: string) => {
+      const result = insertMobileVoiceTranscription({
+        value: props.draftMessage,
+        selection: composerSelection,
+        transcription,
+      });
+      setComposerSelection(result.selection);
+      props.onChangeDraftMessage(result.text);
+      requestAnimationFrame(() => inputRef.current?.setSelection(result.selection));
+    },
+    [composerSelection, inputRef, props.draftMessage, props.onChangeDraftMessage],
+  );
   useEffect(() => {
     const end = props.draftMessage.length;
     setComposerSelection((selection) => {
@@ -354,6 +369,24 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       return { start, end: selectionEnd };
     });
   }, [props.draftMessage.length]);
+
+  const voiceInputVisible = selectedProviderStatus?.driver === "codex";
+  const hasCodexOauth =
+    voiceInputVisible &&
+    selectedProviderStatus.auth.type === "chatgpt" &&
+    selectedProviderStatus.auth.status === "authenticated";
+  const voiceInput = (variant: "control-pill" | "toolbar") => (
+    <ComposerVoiceInput
+      connected={props.connectionState === "connected"}
+      disabled={false}
+      environmentId={props.environmentId}
+      hasCodexOauth={hasCodexOauth}
+      providerInstanceId={props.selectedThread.modelSelection.instanceId}
+      variant={variant}
+      visible={voiceInputVisible}
+      onTranscribed={handleVoiceTranscribed}
+    />
+  );
 
   const composerTrigger = useMemo<ComposerTrigger | null>(() => {
     if (composerSelection.start !== composerSelection.end) {
@@ -838,16 +871,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           ) : null}
           {!isExpanded ? (
             <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(100)}>
-              {showStopAction ? (
-                <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
-              ) : (
-                <ControlPill
-                  icon="arrow.up"
-                  variant="primary"
-                  disabled={!canSend}
-                  onPress={handleSend}
-                />
-              )}
+              <View className="flex-row gap-1">
+                {voiceInput("control-pill")}
+                {showStopAction ? (
+                  <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
+                ) : (
+                  <ControlPill
+                    icon="arrow.up"
+                    variant="primary"
+                    disabled={!canSend}
+                    onPress={handleSend}
+                  />
+                )}
+              </View>
             </Animated.View>
           ) : null}
         </ComposerSurface>
@@ -898,6 +934,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : null}
               </ComposerToolbarScroller>
+              {voiceInput("toolbar")}
               <ComposerToolbarButton
                 accessibilityLabel={sendLabel}
                 icon="arrow.up"
