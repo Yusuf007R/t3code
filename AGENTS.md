@@ -83,6 +83,12 @@ The most common defect in this repo is a change that works on the path you teste
 - The web app requires pairing. Hand over the pairing URL, not the bare origin. A URL without its token is useless to whoever you gave it to.
 - Stop what you started, by the PID you tracked. See rule 1.
 
+## Rebuild and restart the local service
+
+- Only when explicitly requested, rebuild the embedded web app and server with `vp run --filter t3 build`, then validate the entry point with `node --check apps/server/dist/bin.mjs`.
+- Never restart the systemd user manager. Restart only `t3code.service`, scheduling it outside the service cgroup so the current agent can respawn safely: `systemd-run --user --unit=t3code-restart-once --collect --on-active=2s /usr/bin/systemctl --user restart t3code.service`.
+- After reconnecting, verify `systemctl --user show t3code.service -p ActiveState -p SubState -p MainPID` reports an active/running service with a new PID, and confirm port 3773 is listening.
+
 ## Test data
 
 An empty database is a bad test. Seed your worktree's `.t3` instead of pointing at live state:
