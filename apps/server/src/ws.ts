@@ -23,6 +23,7 @@ import {
   type GitManagerServiceError,
   type MessageId,
   OrchestrationGetFullThreadDiffError,
+  OrchestrationSearchThreadsError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_V2_WS_METHODS,
   OrchestrationV2DispatchCommandError,
@@ -37,11 +38,14 @@ import {
   type ProjectMutation,
   ProjectListEntriesError,
   ProjectReadFileError,
+  ProjectSearchContentsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   ProjectMutationError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
+  type ServerSelfUpdateError,
+  type ServerSelfUpdateProgressEvent,
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
@@ -71,11 +75,12 @@ import * as ThreadManagementService from "./orchestration-v2/ThreadManagementSer
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import {
-  archivedShellStreamItemFromSnapshot,
+  archivedShellStreamItemFromThreadShell,
   coalesceShellApplicationEvents,
+  coalesceStoredThreadEvents,
   composeShellStreamWithEnrichment,
   shellStreamItemFromEnrichmentRefresh,
-  shellStreamItemFromSnapshot,
+  shellStreamItemFromThreadShell,
   shellStreamItemsFromInitialSnapshot,
 } from "./orchestration-v2/ShellStream.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -747,25 +752,23 @@ const makeWsRpcLayer = (
             });
           });
 
+          // Coalescing makes each per-thread shell read represent every event
+          // for that thread in the current window; reading only the affected
+          // threads keeps the cost of a busy stream independent of how many
+          // threads exist overall.
           const projectShellItems = Effect.fn("ws.orchestrationV2.projectShellItems")(function* (
             events: ReadonlyArray<ApplicationStoredEvent>,
           ) {
-            const survivors = coalesceShellApplicationEvents(events);
-            const needsThreadSnapshot = survivors.some((stored) => !("aggregateKind" in stored));
-            const threadSnapshot = needsThreadSnapshot
-              ? yield* threadManagement.getShellSnapshot().pipe(Effect.map(Option.some))
-              : Option.none();
             return yield* Effect.forEach(
-              survivors,
+              coalesceShellApplicationEvents(events),
               (stored) =>
-                "aggregateKind" in stored
-                  ? projectItem(stored)
-                  : Effect.succeed(
-                      shellStreamItemFromSnapshot({
-                        stored,
-                        snapshot: Option.getOrThrow(threadSnapshot),
-                      }),
-                    ),
+                Effect.gen(function* () {
+                  if ("aggregateKind" in stored) {
+                    return yield* projectItem(stored);
+                  }
+                  const shell = yield* threadManagement.getThreadShell(stored.event.threadId);
+                  return shellStreamItemFromThreadShell({ stored, shell });
+                }),
               { concurrency: 8 },
             );
           });
@@ -920,20 +923,22 @@ const makeWsRpcLayer = (
         const live = threadManagement
           .streamStoredEventsFrom({ afterSequence: snapshot.snapshotSequence })
           .pipe(
-            Stream.mapEffect((stored) =>
-              threadManagement.getShellSnapshot().pipe(
-                Effect.map((nextSnapshot) =>
-                  archivedShellStreamItemFromSnapshot({ stored, snapshot: nextSnapshot }),
-                ),
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationV2GetShellSnapshotError({
-                      message: "Failed while streaming archived threads",
-                      cause,
-                    }),
-                ),
+            Stream.groupedWithin(512, Duration.millis(50)),
+            Stream.mapEffect((events) =>
+              Effect.forEach(
+                coalesceStoredThreadEvents(Array.from(events)),
+                (stored) =>
+                  threadManagement
+                    .getThreadShell(stored.event.threadId)
+                    .pipe(
+                      Effect.map((shell) =>
+                        archivedShellStreamItemFromThreadShell({ stored, shell }),
+                      ),
+                    ),
+                { concurrency: 8 },
               ),
             ),
+            Stream.flatMap(Stream.fromIterable),
             Stream.filterMap((item) => (item === null ? Result.failVoid : Result.succeed(item))),
             Stream.mapError(
               (cause) =>
@@ -1069,6 +1074,20 @@ const makeWsRpcLayer = (
                 (cause) =>
                   new OrchestrationGetFullThreadDiffError({
                     message: "Failed to load full thread diff",
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_V2_WS_METHODS.searchThreads]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_V2_WS_METHODS.searchThreads,
+            projectionSnapshotQuery.searchThreads(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationSearchThreadsError({
+                    message: "Failed to search threads",
                     cause,
                   }),
               ),
@@ -1227,6 +1246,33 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.serverUpdateServer, serverSelfUpdate.update(input), {
             "rpc.aggregate": "server",
           }),
+        [WS_METHODS.serverUpdateServerWithProgress]: (input) =>
+          observeRpcStream(
+            WS_METHODS.serverUpdateServerWithProgress,
+            Stream.callback<ServerSelfUpdateProgressEvent, ServerSelfUpdateError>((queue) =>
+              serverSelfUpdate
+                .update(input, (stage) =>
+                  Queue.offer(queue, {
+                    type: "progress",
+                    stage,
+                  }).pipe(Effect.asVoid),
+                )
+                .pipe(
+                  Effect.flatMap((result) =>
+                    Queue.offer(queue, {
+                      type: "complete",
+                      result,
+                    }),
+                  ),
+                  Effect.catchTags({
+                    ServerSelfUpdateError: (error) => Queue.fail(queue, error),
+                  }),
+                  Effect.andThen(Queue.end(queue)),
+                  Effect.forkScoped,
+                ),
+            ),
+            { "rpc.aggregate": "server" },
+          ),
         [WS_METHODS.serverUpsertKeybinding]: (rule) =>
           observeRpcEffect(
             WS_METHODS.serverUpsertKeybinding,
@@ -1406,6 +1452,23 @@ const makeWsRpcLayer = (
               Effect.mapError(
                 (cause) =>
                   new ProjectSearchEntriesError({
+                    cwd: input.cwd,
+                    queryLength: input.query.length,
+                    limit: input.limit,
+                    ...projectEntriesFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsSearchContents]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsSearchContents,
+            workspaceEntries.searchContents(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectSearchContentsError({
                     cwd: input.cwd,
                     queryLength: input.query.length,
                     limit: input.limit,

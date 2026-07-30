@@ -106,6 +106,7 @@ import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat"
 import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import {
+  buildBulkTitleRegenerationContextMenuItem,
   formatWorkingDurationLabel,
   filterSidebarV2VisibleThreads,
   firstValidTimestampMs,
@@ -446,6 +447,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
     [thread.environmentId, thread.id],
   );
   const threadKey = scopedThreadKey(threadRef);
+  const isRegeneratingTitle = thread.titleRegeneration != null;
   const localLastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
   const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localLastVisitedAt);
   const isSelected = useThreadSelectionStore((state) => state.selectedThreadKeys.has(threadKey));
@@ -724,7 +726,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
   ) : (
     <span
       className={cn(
-        "min-w-0 flex-1 text-sm",
+        "min-w-0 flex-1 text-sm transition-opacity motion-reduce:transition-none",
         shouldRecede ? "font-normal" : "font-medium",
         variant === "card"
           ? cn(
@@ -745,6 +747,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                   ? "text-muted-foreground"
                   : "text-muted-foreground/70",
             ),
+        isRegeneratingTitle && "opacity-[0.55]",
       )}
     >
       {thread.title}
@@ -793,6 +796,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 role="button"
                 tabIndex={0}
                 data-testid="sidebar-v2-row-slim"
+                aria-busy={isRegeneratingTitle || undefined}
                 className={cn(rowSurfaceClassName, "flex h-9 items-center gap-2.5 px-2.5")}
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
@@ -819,6 +823,11 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
             </span>
             {title}
             {terminalStatusIcon}
+            {isRegeneratingTitle ? (
+              <span role="status" className="sr-only">
+                Regenerating title
+              </span>
+            ) : null}
             {/* The PR badge stays outside the hover-fading slot: it must
               remain visible AND clickable while the row is hovered. Only
               the time/jump label yields to the settle affordance. */}
@@ -903,6 +912,7 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
               role="button"
               tabIndex={0}
               data-testid="sidebar-v2-row-card"
+              aria-busy={isRegeneratingTitle || undefined}
               className={rowSurfaceClassName}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
@@ -1001,7 +1011,14 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 ) : null}
               </span>
             </div>
-            <div className="mt-1 flex min-w-0">{title}</div>
+            <div className="mt-1 flex min-w-0">
+              {title}
+              {isRegeneratingTitle ? (
+                <span role="status" className="sr-only">
+                  Regenerating title
+                </span>
+              ) : null}
+            </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/75">
               {thread.branch ? (
                 <span className="min-w-0 flex-1 truncate whitespace-nowrap">{thread.branch}</span>
@@ -1910,16 +1927,28 @@ export default function SidebarV2() {
       const count = threadKeys.length;
       // Snooze (N) is offered when every selected thread can actually take
       // it — a mixed selection with blocked-on-you work would half-apply.
-      const selectionNow = new Date().toISOString();
-      const snoozableThreads = threadKeys.flatMap((threadKey) => {
+      const selectionNow = new Date();
+      const selectedThreads = threadKeys.flatMap((threadKey) => {
         const thread = threadByKeyRef.current.get(threadKey);
         return thread ? [thread] : [];
       });
-      const canSnoozeSelection = snoozableThreads.every(
+      const canSnoozeSelection = selectedThreads.every(
         (thread) =>
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true &&
-          canSnooze(thread, { now: selectionNow }),
+          canSnooze(thread, { now: selectionNow.toISOString() }),
       );
+      const titleRegenerationThreads = selectedThreads.filter(
+        (thread) =>
+          serverConfigs.get(thread.environmentId)?.environment.capabilities
+            .threadTitleRegeneration === true,
+      );
+      const regeneratableTitleThreads = titleRegenerationThreads.filter(
+        (thread) => thread.titleRegeneration == null,
+      );
+      const titleRegenerationMenuItem = buildBulkTitleRegenerationContextMenuItem({
+        supportedCount: titleRegenerationThreads.length,
+        actionableCount: regeneratableTitleThreads.length,
+      });
       const snoozePresets = resolveSnoozePresets(new Date());
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
@@ -1937,6 +1966,7 @@ export default function SidebarV2() {
                   },
                 ]
               : []),
+            ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
             { id: "mark-unread", label: `Mark unread (${count})` },
             { id: "delete", label: `Delete (${count})`, destructive: true },
           ],
@@ -1952,13 +1982,35 @@ export default function SidebarV2() {
           // Post-snooze navigation must skip threads snoozing in this same
           // batch — they are all leaving the card block together.
           const coSnoozingKeys = new Set(threadKeys);
-          for (const thread of snoozableThreads) {
+          for (const thread of selectedThreads) {
             attemptSnooze(scopeThreadRef(thread.environmentId, thread.id), preset, {
               coSnoozingKeys,
             });
           }
           clearSelection();
         }
+        return;
+      }
+      if (clicked.value === "regenerate-title") {
+        for (const thread of regeneratableTitleThreads) {
+          const result = await updateThreadMetadata({
+            environmentId: thread.environmentId,
+            input: { threadId: thread.id, regenerateTitle: true },
+          });
+          if (result._tag === "Success") continue;
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            toastManager.add(
+              stackedThreadToast({
+                type: "error",
+                title: "Failed to regenerate thread titles",
+                description: error instanceof Error ? error.message : "An error occurred.",
+              }),
+            );
+          }
+          return;
+        }
+        clearSelection();
         return;
       }
       if (clicked.value === "settle") {
@@ -2033,6 +2085,7 @@ export default function SidebarV2() {
       markThreadUnread,
       removeFromSelection,
       serverConfigs,
+      updateThreadMetadata,
     ],
   );
 
@@ -2062,6 +2115,10 @@ export default function SidebarV2() {
           true;
         const supportsSnooze =
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true;
+        const supportsTitleRegeneration =
+          serverConfigs.get(thread.environmentId)?.environment.capabilities
+            .threadTitleRegeneration === true;
+        const isRegeneratingTitle = thread.titleRegeneration != null;
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         // Presets resolve at menu-open time (same as the popover).
@@ -2100,6 +2157,15 @@ export default function SidebarV2() {
                   ]
                 : []),
               { id: "rename", label: "Rename thread" },
+              ...(supportsTitleRegeneration
+                ? [
+                    {
+                      id: "regenerate-title",
+                      label: isRegeneratingTitle ? "Regenerating…" : "Regenerate title",
+                      disabled: isRegeneratingTitle,
+                    },
+                  ]
+                : []),
               { id: "mark-unread", label: "Mark unread" },
               { id: "copy-path", label: "Copy path", icon: "copy" },
               ...(thread.branch ? [{ id: "copy-branch", label: "Copy branch", icon: "copy" }] : []),
@@ -2152,6 +2218,24 @@ export default function SidebarV2() {
           case "rename":
             startThreadRename(threadRef, thread.title);
             return;
+          case "regenerate-title": {
+            if (isRegeneratingTitle) return;
+            const result = await updateThreadMetadata({
+              environmentId: threadRef.environmentId,
+              input: { threadId: threadRef.threadId, regenerateTitle: true },
+            });
+            if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+              const error = squashAtomCommandFailure(result);
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Failed to regenerate thread title",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
+            return;
+          }
           case "mark-unread":
             markThreadUnread(threadRef);
             return;
@@ -2218,6 +2302,7 @@ export default function SidebarV2() {
       projectCwdByKey,
       serverConfigs,
       startThreadRename,
+      updateThreadMetadata,
     ],
   );
 

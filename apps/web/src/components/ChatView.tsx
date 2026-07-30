@@ -318,7 +318,7 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { ServerUpdateAction } from "./ServerUpdateAction";
+import { ServerUpdateAction, ServerUpdateProgress } from "./ServerUpdateAction";
 import {
   buildVersionMismatchDismissalKey,
   dismissVersionMismatch,
@@ -331,7 +331,15 @@ import { useAssetUrls } from "../assets/assetUrls";
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+// Never part of timeline row data — see cancelTimelineLiveFollowForUserNavigation.
+const TIMELINE_SCROLL_CANCEL_SENTINEL = Object.freeze({});
 const EMPTY_PROVIDERS: ServerProvider[] = [];
+// During an active turn the thread's updatedAt advances several times per
+// second, and every server-side visit is a full command dispatch plus a
+// broadcast to all shell subscribers. Mid-turn bumps carry no unread signal
+// (unread flips on run completions, which bypass the throttle), so one
+// watermark per interval is plenty.
+const VISIT_DISPATCH_THROTTLE_MS = 10_000;
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PROJECTION_RUNS: OrchestrationV2ThreadProjection["runs"] = [];
 const EMPTY_ATTACHMENT_IDS: string[] = [];
@@ -1243,6 +1251,7 @@ function ChatViewContent(props: ChatViewProps) {
   );
   const visitThreadMutation = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const lastDispatchedVisitRef = useRef<string | null>(null);
+  const lastVisitDispatchAtRef = useRef(0);
   const settings = useEnvironmentSettings(environmentId);
   // New-thread defaults live in the primary environment's settings.json (the
   // settings UI never writes to remote environments), so read them from the
@@ -1577,6 +1586,28 @@ function ChatViewContent(props: ChatViewProps) {
     setTimelineAnchor({ threadKey: activeThreadKey, messageId: null });
   }
   const timelineAnchorMessageId = timelineAnchor.messageId;
+  // Release the turn anchor once its run finishes. LegendList sizes the
+  // anchored end-space filler for the geometry at anchor time and never
+  // recomputes it, so a lingering anchor leaves stale filler height behind
+  // the composer — phantom scroll range on threads whose content fits.
+  const anchorRunSettled = useMemo(() => {
+    if (timelineAnchorMessageId === null) return false;
+    const anchorRun = serverProjection?.runs.find(
+      (run) => run.userMessageId === timelineAnchorMessageId,
+    );
+    if (anchorRun === undefined) return false;
+    return (
+      anchorRun.status !== "preparing" &&
+      anchorRun.status !== "queued" &&
+      anchorRun.status !== "starting" &&
+      anchorRun.status !== "running" &&
+      anchorRun.status !== "waiting"
+    );
+  }, [serverProjection, timelineAnchorMessageId]);
+  useEffect(() => {
+    if (!anchorRunSettled) return;
+    setTimelineAnchor({ threadKey: activeThreadKey, messageId: null });
+  }, [anchorRunSettled, activeThreadKey]);
   const activeRightPanelKind = useRightPanelStore((state) =>
     selectActiveRightPanel(state.byThreadKey, activeThreadRef),
   );
@@ -1930,15 +1961,38 @@ function ChatViewContent(props: ChatViewProps) {
     if (serverThread.lastVisitedAt !== undefined) {
       // Server-tracked visited state: record the watermark server-side so it
       // syncs across every device connected to the environment. Dedupe per
-      // watermark — the effect re-runs before the command's echo lands.
+      // watermark — the effect re-runs before the command's echo lands. The
+      // dedupe also keeps a mark-unread on the open thread sticky: the rewind
+      // leaves updatedAt untouched, so the already-dispatched key skips a
+      // fresh visit until new activity lands or the thread is reopened.
       const dispatchKey = `${routeThreadKey}:${serverThread.updatedAt}`;
       if (lastDispatchedVisitRef.current === dispatchKey) return;
-      lastDispatchedVisitRef.current = dispatchKey;
-      void visitThreadMutation({
-        environmentId: serverThread.environmentId,
-        input: { threadId: serverThread.id, visitedAt: serverThread.updatedAt },
-      });
-      return;
+      const dispatch = () => {
+        lastDispatchedVisitRef.current = dispatchKey;
+        lastVisitDispatchAtRef.current = Date.now();
+        void visitThreadMutation({
+          environmentId: serverThread.environmentId,
+          input: { threadId: serverThread.id, visitedAt: serverThread.updatedAt },
+        });
+      };
+      // Unread prominence only flips on run completions (hasUnseenCompletion),
+      // so an unseen completion publishes immediately; mid-turn activity bumps
+      // — several per second while a turn streams — ride a trailing throttle,
+      // each rerun swapping the timer so the trailing dispatch carries the
+      // newest watermark.
+      const latestRunCompletedAtMs = serverThread.latestRun?.completedAt
+        ? Date.parse(serverThread.latestRun.completedAt)
+        : NaN;
+      const hasUnseenCompletion =
+        !Number.isNaN(latestRunCompletedAtMs) &&
+        (Number.isNaN(lastVisitedAt) || latestRunCompletedAtMs > lastVisitedAt);
+      const elapsed = Date.now() - lastVisitDispatchAtRef.current;
+      if (hasUnseenCompletion || elapsed >= VISIT_DISPATCH_THROTTLE_MS) {
+        dispatch();
+        return;
+      }
+      const timer = setTimeout(dispatch, VISIT_DISPATCH_THROTTLE_MS - elapsed);
+      return () => clearTimeout(timer);
     }
 
     markThreadVisited(
@@ -1952,6 +2006,7 @@ function ChatViewContent(props: ChatViewProps) {
     serverThread?.environmentId,
     serverThread?.id,
     serverThread?.lastVisitedAt,
+    serverThread?.latestRun?.completedAt,
     serverThread?.updatedAt,
     visitThreadMutation,
   ]);
@@ -2004,79 +2059,138 @@ function ChatViewContent(props: ChatViewProps) {
   }, [setDismissedVersionMismatchKey, versionMismatchDismissKey]);
   const versionMismatchEnvironmentId =
     versionMismatch && activeThread ? activeThread.environmentId : null;
+  const serverUpdateEnvironmentId = activeThread?.environmentId ?? null;
   const versionMismatchSelfUpdate = resolveServerSelfUpdateCapability(serverConfig);
+  const serverUpdateState = useAtomValue(
+    serverEnvironment.updateStateAtom(serverUpdateEnvironmentId),
+  );
   const systemComposerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const items: ComposerBannerStackItem[] = [];
-    if (activeEnvironmentUnavailableState) {
-      const connection = activeEnvironmentUnavailableState.connection;
-      const isReconnecting =
-        connection.phase === "connecting" || connection.phase === "reconnecting";
-      items.push({
-        id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
-        variant: connection.phase === "error" ? "error" : "warning",
-        icon: <WifiOffIcon />,
-        title: `${activeEnvironmentUnavailableState.label}: ${connectionStatusTitle(connection)}`,
-        description:
-          connection.error ??
-          "Reconnect this environment before sending messages or running actions.",
-        actions: (
-          <>
-            <Button
-              size="xs"
-              disabled={isReconnecting}
-              onClick={() =>
-                void handleReconnectActiveEnvironment(
-                  activeEnvironmentUnavailableState.environmentId,
-                )
-              }
-            >
-              {isReconnecting ? "Reconnecting..." : "Reconnect"}
-            </Button>
-            <Button
-              size="xs"
-              variant="outline"
-              onClick={() => void navigate({ to: "/settings/connections" })}
-            >
-              Connections
-            </Button>
-          </>
-        ),
-      });
+    const updateRunning = serverUpdateState.status === "running";
+    const unavailableConnection = activeEnvironmentUnavailableState?.connection ?? null;
+    const environmentReconnecting =
+      unavailableConnection !== null &&
+      (unavailableConnection.phase === "connecting" ||
+        unavailableConnection.phase === "reconnecting");
+    // Reconnecting to a version-skewed server with no update in flight
+    // usually means the server is restarting mid-update and a refresh wiped
+    // the in-memory update state. Fold the reconnect and version banners
+    // into one calm line instead of stacking "Failed to connect" on
+    // "versions differ". A failed update never folds: its error and retry
+    // action must stay visible.
+    const reconnectingThroughVersionSkew =
+      serverUpdateState.status === "idle" && environmentReconnecting && versionMismatch !== null;
+    // While an update runs, transient connect blips are expected (the server
+    // restarts) and the update banner already shows progress. Hard failure
+    // phases still surface so the Reconnect action stays reachable.
+    const suppressUnavailableBanner = updateRunning && environmentReconnecting;
+    if (activeEnvironmentUnavailableState && unavailableConnection && !suppressUnavailableBanner) {
+      if (reconnectingThroughVersionSkew) {
+        items.push({
+          id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
+          variant: "default",
+          icon: (
+            <span
+              className="size-1.5 animate-status-pulse rounded-full bg-foreground"
+              aria-hidden="true"
+            />
+          ),
+          title: `${unavailableConnection.phase === "connecting" ? "Connecting" : "Reconnecting"} to ${activeEnvironmentUnavailableState.label}`,
+          description: "It may be finishing an update. One moment.",
+        });
+      } else {
+        items.push({
+          id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
+          variant: unavailableConnection.phase === "error" ? "error" : "warning",
+          icon: <WifiOffIcon />,
+          title: `${activeEnvironmentUnavailableState.label}: ${connectionStatusTitle(unavailableConnection)}`,
+          description:
+            unavailableConnection.error ??
+            "Reconnect this environment before sending messages or running actions.",
+          actions: (
+            <>
+              <Button
+                size="xs"
+                disabled={environmentReconnecting}
+                onClick={() =>
+                  void handleReconnectActiveEnvironment(
+                    activeEnvironmentUnavailableState.environmentId,
+                  )
+                }
+              >
+                {environmentReconnecting ? "Reconnecting..." : "Reconnect"}
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => void navigate({ to: "/settings/connections" })}
+              >
+                Connections
+              </Button>
+            </>
+          ),
+        });
+      }
     }
     if (
-      showVersionMismatchBanner &&
-      versionMismatch &&
-      versionMismatchDismissKey &&
-      versionMismatchEnvironmentId
+      serverUpdateEnvironmentId &&
+      !reconnectingThroughVersionSkew &&
+      (serverUpdateState.status !== "idle" ||
+        (showVersionMismatchBanner && versionMismatch && versionMismatchDismissKey))
     ) {
+      const updateInProgress = serverUpdateState.status === "running";
+      const updateFailed = serverUpdateState.status === "failed";
       items.push({
-        id: `version-mismatch:${versionMismatchDismissKey}`,
-        variant: "warning",
-        icon: <TriangleAlertIcon />,
-        title: "Client and server versions differ",
-        description: (
-          <>
-            Client {versionMismatch.clientVersion} is connected to {versionMismatchServerLabel}{" "}
-            {versionMismatch.serverVersion}.{" "}
-            {serverUpdateGuidance(versionMismatchSelfUpdate, versionMismatchServerLabel)}
-          </>
+        id: `server-version:${serverUpdateEnvironmentId}`,
+        variant: updateFailed ? "error" : updateInProgress ? "default" : "warning",
+        icon: updateInProgress ? (
+          <span
+            className="size-1.5 animate-status-pulse rounded-full bg-foreground"
+            aria-hidden="true"
+          />
+        ) : (
+          <TriangleAlertIcon />
         ),
+        title:
+          updateInProgress || updateFailed
+            ? `${updateFailed ? "Could not update" : "Updating"} ${versionMismatchServerLabel}`
+            : "Client and server versions differ",
+        description:
+          updateInProgress || updateFailed ? (
+            <ServerUpdateProgress
+              fromVersion={serverUpdateState.fromVersion}
+              state={serverUpdateState}
+            />
+          ) : versionMismatch ? (
+            <>
+              Client {versionMismatch.clientVersion} is connected to {versionMismatchServerLabel}{" "}
+              {versionMismatch.serverVersion}.{" "}
+              {serverUpdateGuidance(versionMismatchSelfUpdate, versionMismatchServerLabel)}
+            </>
+          ) : null,
         // The desktop-managed guidance is already the description; the action
         // slot would only repeat it.
         actions:
+          updateInProgress ||
+          !versionMismatch ||
           versionMismatchSelfUpdate === "desktop-managed" ? undefined : (
             <ServerUpdateAction
-              environmentId={versionMismatchEnvironmentId}
+              environmentId={serverUpdateEnvironmentId}
               serverLabel={versionMismatchServerLabel}
               selfUpdate={versionMismatchSelfUpdate}
               targetVersion={versionMismatch.clientVersion}
+              {...(updateFailed ? { label: "Retry update" } : {})}
             />
           ),
-        dismissLabel: "Dismiss version mismatch warning",
-        onDismiss: () => {
-          dismissVersionMismatch(versionMismatchDismissKey);
-          setDismissedVersionMismatchKey(versionMismatchDismissKey);
-        },
+        ...(updateInProgress || updateFailed || !versionMismatchDismissKey
+          ? {}
+          : {
+              dismissLabel: "Dismiss version mismatch warning",
+              onDismiss: () => {
+                dismissVersionMismatch(versionMismatchDismissKey);
+                setDismissedVersionMismatchKey(versionMismatchDismissKey);
+              },
+            }),
       });
     }
     return items;
@@ -2086,9 +2200,10 @@ function ChatViewContent(props: ChatViewProps) {
     navigate,
     setDismissedVersionMismatchKey,
     showVersionMismatchBanner,
+    serverUpdateState,
     versionMismatch,
     versionMismatchDismissKey,
-    versionMismatchEnvironmentId,
+    serverUpdateEnvironmentId,
     versionMismatchSelfUpdate,
     versionMismatchServerLabel,
   ]);
@@ -3567,6 +3682,7 @@ function ChatViewContent(props: ChatViewProps) {
   const anchorScrollRestoreFrameRef = useRef<number | null>(null);
   const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
     anchorUserScrollGenerationRef.current += 1;
+    const wasProgrammaticScrollMode = timelineScrollModeRef.current !== "free-scrolling";
     timelineScrollModeRef.current = "free-scrolling";
     liveFollowUserScrollGenerationRef.current = null;
     pendingTimelineAnchorRef.current = null;
@@ -3577,6 +3693,30 @@ function ChatViewContent(props: ChatViewProps) {
     if (anchorScrollRestoreFrameRef.current !== null) {
       cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
       anchorScrollRestoreFrameRef.current = null;
+    }
+    if (wasProgrammaticScrollMode) {
+      // While following or anchoring, our scrollToEnd/scrollToOffset calls can
+      // sit in LegendList's pending-imperative-scroll queue (it defers them
+      // while layout settles) and fire seconds later with stale targets,
+      // yanking the view away after the user scrolled. Starting a new
+      // imperative scroll cancels everything queued; targeting an item that
+      // is not in the data makes the new request itself resolve without ever
+      // scrolling, so this is a pure cancel.
+      void legendListRef.current?.scrollToItem({
+        item: TIMELINE_SCROLL_CANCEL_SENTINEL,
+        animated: false,
+      });
+      // An already-started animated scroll (behavior: smooth) keeps running in
+      // the browser regardless of the queue; a same-position instant write is
+      // the only way to halt it where it is.
+      const scrollNode = legendListRef.current?.getScrollableNode() as
+        | { scrollTop?: number }
+        | null
+        | undefined;
+      const currentScrollTop = scrollNode?.scrollTop;
+      if (scrollNode && typeof currentScrollTop === "number") {
+        scrollNode.scrollTop = currentScrollTop;
+      }
     }
   }, []);
   const cancelTimelineLiveFollowForUserNavigationRef = useRef(

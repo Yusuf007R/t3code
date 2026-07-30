@@ -19,6 +19,7 @@ import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
@@ -46,7 +47,7 @@ import { EventSinkV2 } from "./EventSink.ts";
 import { ProjectionMaintenanceV2 } from "./ProjectionMaintenance.ts";
 import type { ProviderAdapterV2Shape } from "./ProviderAdapter.ts";
 import { OrchestrationV2EventSinkLayerLive, OrchestrationV2LayerLive } from "./runtimeLayer.ts";
-import { shellStreamItemFromSnapshot } from "./ShellStream.ts";
+import { shellStreamItemFromThreadShell } from "./ShellStream.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import { ThreadManagementService } from "./ThreadManagementService.ts";
 
@@ -655,9 +656,9 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
         threadId,
       );
       assert.deepEqual(
-        shellStreamItemFromSnapshot({
+        shellStreamItemFromThreadShell({
           stored: archive.storedEvents[0]!,
-          snapshot: archivedShell,
+          shell: yield* orchestrator.getThreadShell(threadId),
         }),
         {
           kind: "thread.updated",
@@ -682,7 +683,10 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
         threadId,
       );
       assert.deepEqual(
-        shellStreamItemFromSnapshot({ stored: remove.storedEvents[0]!, snapshot: deletedShell }),
+        shellStreamItemFromThreadShell({
+          stored: remove.storedEvents[0]!,
+          shell: yield* orchestrator.getThreadShell(threadId),
+        }),
         {
           kind: "thread.removed",
           sequence: remove.sequence,
@@ -1332,6 +1336,7 @@ it.layer(SharedApplicationDataPlaneTestLayer)("visited projection", (it) => {
       assert.isNull(created.thread.lastVisitedAt);
       const createdUpdatedAt = created.thread.updatedAt;
 
+      yield* TestClock.adjust("1 second");
       yield* orchestrator.dispatch({
         type: "thread.visit",
         commandId: CommandId.make("runtime-layer-visited-thread-visit"),

@@ -15,6 +15,7 @@ import {
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2Run,
   type OrchestrationV2RunAttempt,
+  type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadShellSnapshot,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2Subagent,
@@ -160,6 +161,9 @@ export interface OrchestratorV2Shape {
     OrchestrationV2ThreadShellSnapshot,
     OrchestratorV2Error
   >;
+  readonly getThreadShell: (
+    threadId: ThreadId,
+  ) => Effect.Effect<OrchestrationV2ThreadShell | null, OrchestratorV2Error>;
   readonly getThreadEventSequence: (
     threadId: ThreadId,
   ) => Effect.Effect<number, OrchestratorV2Error>;
@@ -1160,6 +1164,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(command.title === undefined ? {} : { title: command.title }),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
+            // regenerateTitle: true arms the in-flight marker; a landing title
+            // or an explicit false (generation failed/abandoned) clears it.
+            ...(command.regenerateTitle === true
+              ? { titleRegeneration: { requestId: command.commandId, startedAt: now } }
+              : command.regenerateTitle === false || command.title !== undefined
+                ? { titleRegeneration: null }
+                : {}),
             updatedAt: now,
           };
         case "thread.runtime-mode.set":
@@ -5999,6 +6010,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             }),
         ),
       ),
+    getThreadShell: (threadId) =>
+      projectionStore
+        .getThreadShell(threadId)
+        .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause }))),
     getThreadEventSequence: (threadId) =>
       eventSink
         .latestSequence({ threadId })
@@ -6020,7 +6035,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             }),
         ),
       ),
-    streamDomainEvents: eventSink.stream().pipe(
+    // Live tail only. eventSink.stream() with no cursor replays the whole
+    // store from genesis first; domain-event subscribers (the awareness relay)
+    // react to new activity, and startup replay made them grind through the
+    // entire event history doing per-event work after every boot.
+    streamDomainEvents: Stream.unwrap(
+      eventSink
+        .latestSequence()
+        .pipe(Effect.map((latest) => eventSink.stream({ afterSequence: latest }))),
+    ).pipe(
       Stream.map((stored) => stored.event),
       Stream.mapError(
         (cause) =>
@@ -6085,6 +6108,13 @@ export const layerUnavailable: Layer.Layer<OrchestratorV2> = Layer.succeed(
       Effect.fail(
         new OrchestratorProjectionError({
           threadId: ThreadId.make("thread:shell"),
+          cause: "Orchestration V2 live runtime is not configured.",
+        }),
+      ),
+    getThreadShell: (threadId) =>
+      Effect.fail(
+        new OrchestratorProjectionError({
+          threadId,
           cause: "Orchestration V2 live runtime is not configured.",
         }),
       ),

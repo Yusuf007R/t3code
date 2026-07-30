@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   archiveSelectedThreadEntries,
+  buildBulkTitleRegenerationContextMenuItem,
   buildMultiSelectThreadContextMenuItems,
   createThreadJumpHintVisibilityController,
   filterSidebarV2VisibleThreads,
@@ -27,6 +28,7 @@ import {
   shouldClearThreadSelectionOnMouseDown,
   sortLogicalProjectsForSidebar,
   sortSidebarV2ProjectGroups,
+  resolveThreadLastVisitedAt,
   sortSettledThreadsForSidebarV2,
   sortThreadsForSidebarV2,
   sortScopedProjectsForSidebar,
@@ -144,6 +146,42 @@ describe("archiveSelectedThreadEntries", () => {
       mutationFailure: null,
       followupFailures: [failure],
     });
+  });
+});
+
+describe("buildBulkTitleRegenerationContextMenuItem", () => {
+  it("counts only threads that can start a new regeneration", () => {
+    expect(
+      buildBulkTitleRegenerationContextMenuItem({
+        supportedCount: 4,
+        actionableCount: 3,
+      }),
+    ).toEqual({
+      id: "regenerate-title",
+      label: "Regenerate titles (3)",
+    });
+  });
+
+  it("shows a disabled progress item when every supported thread is pending", () => {
+    expect(
+      buildBulkTitleRegenerationContextMenuItem({
+        supportedCount: 2,
+        actionableCount: 0,
+      }),
+    ).toEqual({
+      id: "regenerate-title",
+      label: "Regenerating… (2)",
+      disabled: true,
+    });
+  });
+
+  it("omits the action when no selected environment supports it", () => {
+    expect(
+      buildBulkTitleRegenerationContextMenuItem({
+        supportedCount: 0,
+        actionableCount: 0,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -1549,5 +1587,29 @@ describe("sortSidebarV2ProjectGroups", () => {
         (project) => project.projectKey,
       ),
     ).toEqual(["logical-newer", "logical-older"]);
+  });
+});
+
+describe("resolveThreadLastVisitedAt", () => {
+  it("uses the local watermark when the server does not track visits", () => {
+    expect(resolveThreadLastVisitedAt(undefined, "2026-07-30T10:00:00.000Z")).toBe(
+      "2026-07-30T10:00:00.000Z",
+    );
+    expect(resolveThreadLastVisitedAt(undefined, undefined)).toBeUndefined();
+  });
+
+  it("keeps the server watermark authoritative when visited tracking exists", () => {
+    // A rewound server value (mark-unread) must win even over a newer local
+    // watermark left behind by earlier viewing on this device.
+    expect(resolveThreadLastVisitedAt("2026-07-30T10:00:00.000Z", "2026-07-30T10:00:05.000Z")).toBe(
+      "2026-07-30T10:00:00.000Z",
+    );
+    expect(resolveThreadLastVisitedAt("2026-07-30T10:00:00.000Z", undefined)).toBe(
+      "2026-07-30T10:00:00.000Z",
+    );
+  });
+
+  it("treats an explicit server-side null as never visited", () => {
+    expect(resolveThreadLastVisitedAt(null, "2026-07-30T10:00:00.000Z")).toBeUndefined();
   });
 });
