@@ -190,6 +190,14 @@ export function applyToProjection(
         ...base,
         thread: event.payload,
       };
+    // Visited tracking is read state, not activity: skip the updatedAt bump so
+    // viewing a thread does not surface it as recently active.
+    case "thread.visited":
+    case "thread.marked-unread":
+      return {
+        ...projection,
+        thread: event.payload,
+      };
     case "run.created":
     case "run.updated":
       return withLocalVisibleTurnItems({
@@ -389,12 +397,17 @@ type ShellThreadRow = {
   readonly payload_json: string;
   readonly latest_run_id: string | null;
   readonly latest_run_status: string | null;
+  readonly latest_run_requested_at: string | null;
+  readonly latest_run_started_at: string | null;
+  readonly latest_run_completed_at: string | null;
   readonly active_run_id: string | null;
+  readonly last_error: string | null;
   readonly pending_request_payload_json: string | null;
   readonly latest_message_payload_json: string | null;
   readonly latest_user_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
   readonly item_count: number;
+  readonly runless_item_count: number;
 };
 
 type ShellRunRow = {
@@ -647,6 +660,19 @@ function makeForkMarkerTurnItem(input: {
   };
 }
 
+export function isTurnItemAtOrBeforeRun(input: {
+  readonly historyOrigin: OrchestrationV2ThreadProjection["thread"]["historyOrigin"];
+  readonly itemRunId: OrchestrationV2TurnItem["runId"];
+  readonly runOrdinalById: ReadonlyMap<NonNullable<OrchestrationV2TurnItem["runId"]>, number>;
+  readonly sourceRunOrdinal: number;
+}): boolean {
+  if (input.itemRunId === null) {
+    return input.historyOrigin === "v1_import";
+  }
+  const ordinal = input.runOrdinalById.get(input.itemRunId);
+  return ordinal !== undefined && ordinal <= input.sourceRunOrdinal;
+}
+
 function visibleTurnItemsThroughRun(input: {
   readonly sourceProjection: OrchestrationV2ThreadProjection;
   readonly sourceRunId: NonNullable<OrchestrationV2TurnItem["runId"]>;
@@ -678,11 +704,12 @@ function visibleTurnItemsThroughRun(input: {
       ) {
         return false;
       }
-      if (item.runId === null) {
-        return false;
-      }
-      const ordinal = runOrdinalById.get(item.runId);
-      return ordinal !== undefined && ordinal <= sourceRun.ordinal;
+      return isTurnItemAtOrBeforeRun({
+        historyOrigin: input.sourceProjection.thread.historyOrigin,
+        itemRunId: item.runId,
+        runOrdinalById,
+        sourceRunOrdinal: sourceRun.ordinal,
+      });
     }),
   );
 
@@ -732,7 +759,7 @@ export function threadShellFromProjection(
   const latestRun = projection.runs.at(-1) ?? null;
   const activeRun =
     projection.runs
-      .filter(isBlockingRunForShell)
+      .filter(isInterruptibleRunForShell)
       .toSorted((left, right) => right.ordinal - left.ordinal)[0] ?? null;
   const pendingRuntimeRequest =
     projection.runtimeRequests
@@ -753,6 +780,13 @@ export function threadShellFromProjection(
         (left, right) =>
           DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
       )[0] ?? null;
+  const providerSession =
+    projection.providerSessions
+      .filter((session) => session.providerInstanceId === projection.thread.providerInstanceId)
+      .toSorted(
+        (left, right) =>
+          DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
+      )[0] ?? null;
   return {
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
@@ -768,9 +802,16 @@ export function threadShellFromProjection(
     lineage: projection.thread.lineage,
     forkedFrom: projection.thread.forkedFrom,
     activeProviderThreadId: projection.thread.activeProviderThreadId,
+    ...(projection.thread.historyOrigin === undefined
+      ? {}
+      : { historyOrigin: projection.thread.historyOrigin }),
     latestRunId: latestRun?.id ?? null,
+    latestRunRequestedAt: latestRun?.requestedAt ?? null,
+    latestRunStartedAt: latestRun?.startedAt ?? null,
+    latestRunCompletedAt: latestRun?.completedAt ?? null,
     activeRunId: activeRun?.id ?? null,
     status: latestRun?.status ?? "idle",
+    lastError: providerSession?.lastError ?? null,
     pendingRuntimeRequest:
       pendingRuntimeRequest === null
         ? null
@@ -801,29 +842,30 @@ export function threadShellFromProjection(
     settledAt: projection.thread.settledAt,
     snoozedUntil: projection.thread.snoozedUntil ?? null,
     snoozedAt: projection.thread.snoozedAt ?? null,
+    lastVisitedAt: projection.thread.lastVisitedAt,
     deletedAt: projection.thread.deletedAt,
   };
 }
 
-function isBlockingRunForShell(run: OrchestrationV2ThreadProjection["runs"][number]): boolean {
-  return (
-    run.status === "preparing" ||
-    run.status === "starting" ||
-    run.status === "running" ||
-    run.status === "waiting"
-  );
+function isInterruptibleRunForShell(run: OrchestrationV2ThreadProjection["runs"][number]): boolean {
+  return run.status === "preparing" || run.status === "starting" || run.status === "running";
 }
 
 type ShellThreadState = {
   readonly thread: OrchestrationV2ThreadProjection["thread"];
   readonly latestRunId: RunId | null;
   readonly latestRunStatus: OrchestrationV2ShellThreadStatus;
+  readonly latestRunRequestedAt: DateTime.Utc | null;
+  readonly latestRunStartedAt: DateTime.Utc | null;
+  readonly latestRunCompletedAt: DateTime.Utc | null;
   readonly activeRunId: RunId | null;
+  readonly lastError: string | null;
   readonly pendingRuntimeRequest: OrchestrationV2ThreadProjection["runtimeRequests"][number] | null;
   readonly latestVisibleMessage: OrchestrationV2ConversationMessage | null;
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
   readonly itemCount: number;
+  readonly runlessItemCount: number;
   readonly updatedAt: OrchestrationV2ThreadProjection["updatedAt"];
   readonly runOrdinalById: ReadonlyMap<RunId, number>;
   readonly itemCountByRunId: ReadonlyMap<RunId, number>;
@@ -858,7 +900,7 @@ function itemCountThroughRun(input: {
     return 0;
   }
 
-  let count = 0;
+  let count = input.state.thread.historyOrigin === "v1_import" ? input.state.runlessItemCount : 0;
   for (const [runId, itemCount] of input.state.itemCountByRunId) {
     const itemRunOrdinal = input.state.runOrdinalById.get(runId);
     if (itemRunOrdinal !== undefined && itemRunOrdinal <= runOrdinal) {
@@ -930,9 +972,16 @@ function shellFromState(input: {
     lineage: input.state.thread.lineage,
     forkedFrom: input.state.thread.forkedFrom,
     activeProviderThreadId: input.state.thread.activeProviderThreadId,
+    ...(input.state.thread.historyOrigin === undefined
+      ? {}
+      : { historyOrigin: input.state.thread.historyOrigin }),
     latestRunId: input.state.latestRunId,
+    latestRunRequestedAt: input.state.latestRunRequestedAt,
+    latestRunStartedAt: input.state.latestRunStartedAt,
+    latestRunCompletedAt: input.state.latestRunCompletedAt,
     activeRunId: input.state.activeRunId,
     status: input.state.latestRunStatus,
+    lastError: input.state.lastError,
     pendingRuntimeRequest:
       input.state.pendingRuntimeRequest === null
         ? null
@@ -961,6 +1010,7 @@ function shellFromState(input: {
     settledAt: input.state.thread.settledAt,
     snoozedUntil: input.state.thread.snoozedUntil ?? null,
     snoozedAt: input.state.thread.snoozedAt ?? null,
+    lastVisitedAt: input.state.thread.lastVisitedAt,
     deletedAt: input.state.thread.deletedAt,
   };
 }
@@ -981,6 +1031,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           case "thread.unsettled":
           case "thread.snoozed":
           case "thread.unsnoozed":
+          case "thread.visited":
+          case "thread.marked-unread":
           case "thread.metadata-updated":
           case "thread.runtime-mode-updated":
           case "thread.interaction-mode-updated":
@@ -2072,13 +2124,44 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 LIMIT 1
               ) AS latest_run_status,
               (
+                SELECT r.requested_at
+                FROM orchestration_v2_projection_runs r
+                WHERE r.thread_id = t.thread_id
+                ORDER BY r.ordinal DESC, r.run_id DESC
+                LIMIT 1
+              ) AS latest_run_requested_at,
+              (
+                SELECT json_extract(r.payload_json, '$.startedAt')
+                FROM orchestration_v2_projection_runs r
+                WHERE r.thread_id = t.thread_id
+                ORDER BY r.ordinal DESC, r.run_id DESC
+                LIMIT 1
+              ) AS latest_run_started_at,
+              (
+                SELECT r.completed_at
+                FROM orchestration_v2_projection_runs r
+                WHERE r.thread_id = t.thread_id
+                ORDER BY r.ordinal DESC, r.run_id DESC
+                LIMIT 1
+              ) AS latest_run_completed_at,
+              (
                 SELECT r.run_id
                 FROM orchestration_v2_projection_runs r
                 WHERE r.thread_id = t.thread_id
-                  AND r.status IN ('preparing', 'starting', 'running', 'waiting')
+                  AND r.status IN ('preparing', 'starting', 'running')
                 ORDER BY r.ordinal DESC, r.run_id DESC
                 LIMIT 1
               ) AS active_run_id,
+              (
+                SELECT json_extract(session.payload_json, '$.lastError')
+                FROM orchestration_v2_projection_provider_sessions session
+                INNER JOIN orchestration_v2_projection_provider_session_bindings binding
+                  ON binding.provider_session_id = session.provider_session_id
+                WHERE binding.thread_id = t.thread_id
+                  AND session.provider_instance_id = t.provider_instance_id
+                ORDER BY session.updated_at DESC, session.provider_session_id DESC
+                LIMIT 1
+              ) AS last_error,
               (
                 SELECT request.payload_json
                 FROM orchestration_v2_projection_runtime_requests request
@@ -2116,7 +2199,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   ON r.run_id = i.run_id
                 WHERE i.thread_id = t.thread_id
                   AND (i.run_id IS NULL OR r.status <> 'rolled_back')
-              ) AS item_count
+              ) AS item_count,
+              (
+                SELECT COUNT(*)
+                FROM orchestration_v2_projection_turn_items i
+                WHERE i.thread_id = t.thread_id
+                  AND i.run_id IS NULL
+              ) AS runless_item_count
             FROM orchestration_v2_projection_threads t
             WHERE t.deleted_at IS NULL
             ORDER BY t.updated_at ASC, t.thread_id ASC
@@ -2172,7 +2261,20 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   thread,
                   latestRunId: row.latest_run_id === null ? null : RunId.make(row.latest_run_id),
                   latestRunStatus: shellStatusFromStoredRunStatus(row.latest_run_status),
+                  latestRunRequestedAt:
+                    row.latest_run_requested_at === null
+                      ? null
+                      : DateTime.makeUnsafe(row.latest_run_requested_at),
+                  latestRunStartedAt:
+                    row.latest_run_started_at === null
+                      ? null
+                      : DateTime.makeUnsafe(row.latest_run_started_at),
+                  latestRunCompletedAt:
+                    row.latest_run_completed_at === null
+                      ? null
+                      : DateTime.makeUnsafe(row.latest_run_completed_at),
                   activeRunId: row.active_run_id === null ? null : RunId.make(row.active_run_id),
+                  lastError: row.last_error,
                   pendingRuntimeRequest,
                   latestVisibleMessage,
                   latestUserMessageAt:
@@ -2181,6 +2283,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                       : DateTime.makeUnsafe(row.latest_user_message_at),
                   hasActionableProposedPlan: row.has_actionable_proposed_plan === 1,
                   itemCount: row.item_count,
+                  runlessItemCount: row.runless_item_count,
                   updatedAt: thread.updatedAt,
                   runOrdinalById:
                     runOrdinalsByThreadId.get(ThreadId.make(row.thread_id)) ?? new Map(),

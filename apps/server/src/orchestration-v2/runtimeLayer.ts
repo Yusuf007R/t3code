@@ -20,6 +20,7 @@ import {
 import { layerFromStores as eventSinkLayer } from "./EventSink.ts";
 import { layerFromOrchestrationEventStore as eventStoreLayer } from "./EventStore.ts";
 import { layer as idAllocatorLayer } from "./IdAllocator.ts";
+import { layer as legacyV1ThreadImporterLayer } from "./LegacyV1ThreadImporter.ts";
 import { layer as orchestratorLayer } from "./Orchestrator.ts";
 import { layer as projectionStoreLayer } from "./ProjectionStore.ts";
 import { layer as projectionMaintenanceLayer } from "./ProjectionMaintenance.ts";
@@ -36,7 +37,7 @@ import { layer as runExecutionServiceLayer } from "./RunExecutionService.ts";
 import { layer as runFinalizationServiceLayer } from "./RunFinalizationService.ts";
 import { layerFromProjectRepository as runtimePolicyLayerFromProjectRepository } from "./RuntimePolicy.ts";
 import { layer as runtimeRequestServiceLayer } from "./RuntimeRequestService.ts";
-import { layer as threadManagementServiceLayer } from "./ThreadManagementService.ts";
+import { layerWithLegacyImporter as threadManagementServiceLayer } from "./ThreadManagementService.ts";
 import { layer as threadLaunchServiceLayer } from "./ThreadLaunchService.ts";
 import { layer as threadLifecycleServiceLayer } from "./ThreadLifecycleService.ts";
 import { layer as threadForkServiceLayer } from "./ThreadForkService.ts";
@@ -66,8 +67,12 @@ const storesLayer = Layer.mergeAll(
   turnItemPositionStoreLayer,
 );
 
-const eventSinkProvided = eventSinkLayer.pipe(Layer.provide(storesLayer));
+export const OrchestrationV2EventSinkLayerLive = eventSinkLayer.pipe(Layer.provide(storesLayer));
+const eventSinkProvided = OrchestrationV2EventSinkLayerLive;
 const projectionMaintenanceProvided = projectionMaintenanceLayer.pipe(Layer.provide(storesLayer));
+const legacyV1ThreadImporterProvided = legacyV1ThreadImporterLayer.pipe(
+  Layer.provide(Layer.mergeAll(eventSinkProvided, eventStoreProvided)),
+);
 
 const providerEventIngestorProvided = providerEventIngestorLayer.pipe(
   Layer.provide(Layer.mergeAll(eventSinkProvided, idAllocatorLayer)),
@@ -190,6 +195,9 @@ const orchestratorProvided = orchestratorLayer.pipe(
       contextHandoffServiceProvided,
       idAllocatorLayer,
       providerAdapterRegistryProvided,
+      // Same layer reference as the continuation worker and the adapter
+      // infrastructure so layer memoization yields one shared request queue.
+      providerContinuationRequestsLayer,
       providerEventIngestorProvided,
       runtimePolicyProvided,
       providerSessionManagerProvided,
@@ -201,7 +209,7 @@ const orchestratorProvided = orchestratorLayer.pipe(
 );
 
 const threadManagementProvided = threadManagementServiceLayer.pipe(
-  Layer.provide(orchestratorProvided),
+  Layer.provide(Layer.merge(orchestratorProvided, legacyV1ThreadImporterProvided)),
 );
 export const ProjectSetupScriptRunnerLayerLive = projectSetupScriptRunnerLayer.pipe(
   Layer.provide(ProjectServiceLayerLive),
@@ -236,6 +244,7 @@ export const OrchestrationV2LayerLive = Layer.mergeAll(
   providerSessionManagerProvided,
   providerRuntimeRecoveryProvided,
   projectionMaintenanceProvided,
+  legacyV1ThreadImporterProvided,
 );
 
 export const OrchestrationV2ProductionLayerLive = Layer.mergeAll(

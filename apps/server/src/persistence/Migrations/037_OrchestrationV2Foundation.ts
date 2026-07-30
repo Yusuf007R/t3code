@@ -18,7 +18,7 @@ export default Effect.gen(function* () {
   yield* sql`
     UPDATE orchestration_v2_events
     SET
-      driver = provider,
+      driver = COALESCE(json_extract(payload_json, '$.driver'), provider),
       provider_instance_id = COALESCE(
         json_extract(payload_json, '$.providerInstanceId'),
         provider
@@ -137,14 +137,22 @@ export default Effect.gen(function* () {
     )
   `;
   yield* sql`
-    INSERT OR IGNORE INTO orchestration_v2_turn_item_positions (
+    INSERT INTO orchestration_v2_turn_item_positions (
       thread_id,
       turn_item_id,
       ordinal
     )
-    SELECT thread_id, turn_item_id, ordinal
-    FROM orchestration_v2_projection_turn_items
-    ORDER BY thread_id, ordinal, turn_item_id
+    SELECT
+      item.thread_id,
+      item.turn_item_id,
+      COALESCE(run.ordinal, 0) * 1000000 + ROW_NUMBER() OVER (
+        PARTITION BY item.thread_id, COALESCE(run.ordinal, 0)
+        ORDER BY item.ordinal, item.turn_item_id
+      )
+    FROM orchestration_v2_projection_turn_items AS item
+    LEFT JOIN orchestration_v2_projection_runs AS run
+      ON run.thread_id = item.thread_id
+      AND run.run_id = item.run_id
   `;
 
   yield* sql`

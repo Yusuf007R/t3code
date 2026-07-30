@@ -207,7 +207,7 @@ export function serverConfigStateChanges(environmentId: EnvironmentId) {
 export function projectServerWelcome(
   current: Option.Option<ServerLifecycleWelcomePayload>,
   event: {
-    readonly type: "welcome" | "ready";
+    readonly type: "welcome" | "ready" | "legacyThreadMigration";
     readonly payload: unknown;
   },
 ): readonly [
@@ -303,6 +303,16 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
+    resourceTelemetry: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:resource-telemetry",
+      tag: WS_METHODS.subscribeResourceTelemetry,
+      idleTtlMs: 0,
+    }),
+    resourceTelemetryHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:resource-telemetry-history",
+      tag: WS_METHODS.serverGetResourceTelemetryHistory,
+      staleTimeMs: 5_000,
+    }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",
@@ -310,6 +320,18 @@ export function createServerEnvironmentAtoms<R, E>(
       transform: (stream) =>
         stream.pipe(
           Stream.mapAccum(Option.none<ServerLifecycleWelcomePayload>, projectServerWelcome),
+        ),
+    }),
+    legacyThreadMigration: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:legacy-thread-migration",
+      tag: WS_METHODS.subscribeServerLifecycle,
+      transform: (stream) =>
+        stream.pipe(
+          Stream.filterMap((event) =>
+            event.type === "legacyThreadMigration"
+              ? Result.succeed(event.payload)
+              : Result.failVoid,
+          ),
         ),
     }),
     refreshProviders: createEnvironmentRpcCommand(runtime, {
@@ -378,6 +400,14 @@ export function createServerEnvironmentAtoms<R, E>(
     runScheduledTaskNow: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:run-now",
       tag: WS_METHODS.scheduledTasksRunNow,
+    }),
+    retryResourceTelemetry: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:retry-resource-telemetry",
+      tag: WS_METHODS.serverRetryResourceTelemetry,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId }) => environmentId,
+      },
     }),
   };
 }

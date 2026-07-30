@@ -9,6 +9,7 @@ import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/
 import { AlertTriangleIcon, XIcon } from "lucide-react";
 
 import type { DraftId } from "../../composerDraftStore";
+import { useT3ProjectFileScripts } from "../../hooks/useT3ProjectFileScripts";
 import type { EnvMode, EnvironmentOption } from "../BranchToolbar.logic";
 import { BranchToolbar } from "../BranchToolbar";
 import { BranchToolbarEnvironmentSelector } from "../BranchToolbarEnvironmentSelector";
@@ -70,6 +71,10 @@ export interface ThreadDetailsPanelProps {
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+  const fileScripts = useT3ProjectFileScripts(
+    props.environmentId,
+    props.activeProjectScripts ? props.gitCwd : null,
+  );
   const connectionIssue =
     props.environmentConnection !== null &&
     props.environmentConnection.phase !== "connected" &&
@@ -104,6 +109,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     <div
       className={cn(
         "panel-glass overflow-hidden rounded-[20px]",
+        props.mode === "popover" && "panel-glass-elevated",
         props.mode === "inline" ? "max-h-full" : "max-h-[calc(100dvh-6.5rem)]",
       )}
       data-thread-details-card
@@ -199,6 +205,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               <ProjectScriptsControl
                 displayMode="panel"
                 scripts={props.activeProjectScripts}
+                fileScripts={fileScripts}
                 keybindings={props.keybindings}
                 preferredScriptId={props.preferredScriptId}
                 onRunScript={props.onRunProjectScript}
