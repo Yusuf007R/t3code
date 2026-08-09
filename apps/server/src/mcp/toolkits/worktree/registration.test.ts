@@ -31,6 +31,27 @@ const StubServicesLive = Layer.mergeAll(
   Layer.mock(VcsStatusBroadcaster)({}),
 );
 
+const ToolsListPayload = Schema.fromJsonString(
+  Schema.Struct({
+    result: Schema.Struct({
+      tools: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          inputSchema: Schema.Struct({ type: Schema.optional(Schema.String) }),
+          annotations: Schema.optional(
+            Schema.Struct({
+              readOnlyHint: Schema.optional(Schema.Boolean),
+              destructiveHint: Schema.optional(Schema.Boolean),
+              openWorldHint: Schema.optional(Schema.Boolean),
+            }),
+          ),
+        }),
+      ),
+    }),
+  }),
+);
+const decodeToolsListPayload = Schema.decodeUnknownEffect(ToolsListPayload);
+
 it.effect("production mcp layer lists worktree tools over http", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -75,6 +96,7 @@ it.effect("production mcp layer lists worktree tools over http", () =>
         headers: {
           accept: "application/json, text/event-stream",
           authorization: auth,
+          "mcp-protocol-version": "2025-06-18",
           ...(sessionId ? { "mcp-session-id": sessionId } : {}),
         },
         body: HttpBody.text(
@@ -83,28 +105,7 @@ it.effect("production mcp layer lists worktree tools over http", () =>
         ),
       });
       const bodyText = yield* listResponse.text;
-      const ToolsListPayload = Schema.fromJsonString(
-        Schema.Struct({
-          result: Schema.Struct({
-            tools: Schema.Array(
-              Schema.Struct({
-                name: Schema.String,
-                inputSchema: Schema.Struct({ type: Schema.optional(Schema.String) }),
-                annotations: Schema.optional(
-                  Schema.Struct({
-                    readOnlyHint: Schema.optional(Schema.Boolean),
-                    destructiveHint: Schema.optional(Schema.Boolean),
-                    openWorldHint: Schema.optional(Schema.Boolean),
-                  }),
-                ),
-              }),
-            ),
-          }),
-        }),
-      );
-      const payload = yield* Schema.decodeUnknownEffect(ToolsListPayload)(
-        bodyText.match(/\{.*\}/s)![0],
-      );
+      const payload = yield* decodeToolsListPayload(bodyText.match(/\{.*\}/s)![0]);
       const tools = payload.result.tools;
       const toolNames = tools.map((tool) => tool.name);
       expect(toolNames).toContain("t3_worktree_handoff");

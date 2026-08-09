@@ -10,7 +10,6 @@ import type {
   ScopedThreadRef,
   ServerProvider,
   ThreadId,
-  RunId,
   RuntimeRequestId,
 } from "@t3tools/contracts";
 import {
@@ -111,13 +110,24 @@ import { basenameOfPath } from "../../pierre-icons";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { Separator } from "../ui/separator";
 
+type ComposerCommandMenuPosition = {
+  bottom: number;
+  left: number;
+  maxHeight: number;
+  width: number;
+};
+
+function composerCommandMenuPositionsEqual(
+  a: ComposerCommandMenuPosition,
+  b: ComposerCommandMenuPosition,
+): boolean {
+  return (
+    a.bottom === b.bottom && a.left === b.left && a.maxHeight === b.maxHeight && a.width === b.width
+  );
+}
+
 function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children: ReactNode }) {
-  const [position, setPosition] = useState<{
-    bottom: number;
-    left: number;
-    maxHeight: number;
-    width: number;
-  } | null>(null);
+  const [position, setPosition] = useState<ComposerCommandMenuPosition | null>(null);
 
   useLayoutEffect(() => {
     const anchor = props.anchor;
@@ -128,12 +138,15 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
 
     const updatePosition = () => {
       const rect = anchor.getBoundingClientRect();
-      setPosition({
+      const next = {
         bottom: window.innerHeight - rect.top + 8,
         left: rect.left,
         maxHeight: Math.max(96, rect.top - 24),
         width: rect.width,
-      });
+      };
+      setPosition((current) =>
+        current && composerCommandMenuPositionsEqual(current, next) ? current : next,
+      );
     };
 
     updatePosition();
@@ -142,7 +155,16 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
 
     const observer =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePosition);
-    observer?.observe(anchor);
+    if (observer) {
+      // The composer is centered and capped at a max width, so opening a side
+      // panel slides it sideways without ever resizing it. Watching the anchor
+      // alone would leave the menu behind; the ancestors are what shrink, and
+      // they resize on every frame of the panel animation.
+      observer.observe(anchor);
+      for (let element = anchor.parentElement; element; element = element.parentElement) {
+        observer.observe(element);
+      }
+    }
 
     return () => {
       observer?.disconnect();
@@ -175,7 +197,6 @@ import { toastManager } from "../ui/toast";
 import {
   BotIcon,
   CircleAlertIcon,
-  ListTodoIcon,
   LoaderCircleIcon,
   PencilRulerIcon,
   type LucideIcon,
@@ -288,11 +309,8 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
   showPlanToggle: boolean;
-  planSidebarLabel: string;
-  planSidebarOpen: boolean;
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
-  onTogglePlanSidebar: () => void;
 }) {
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
   const RuntimeModeIcon = runtimeModeOption.icon;
@@ -300,10 +318,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
     props.interactionMode === "plan"
       ? "Plan mode — click to return to normal build mode"
       : "Default mode — click to enter plan mode";
-  const planSidebarTooltip = props.planSidebarOpen
-    ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
-    : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`;
-
   const interactionModeToggle = props.showInteractionModeToggle ? (
     <>
       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
@@ -378,36 +392,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
       </Tooltip>
 
       {interactionModeToggle}
-
-      {props.showPlanToggle ? (
-        <>
-          <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <ComposerControl
-                  className={cn(
-                    "shrink-0 whitespace-nowrap",
-                    props.planSidebarOpen
-                      ? "bg-blue-500/10 text-blue-400 hover:bg-blue-500/15 hover:text-blue-300"
-                      : "text-muted-foreground/70 hover:text-foreground/80",
-                  )}
-                  type="button"
-                  onClick={props.onTogglePlanSidebar}
-                  aria-label={planSidebarTooltip}
-                />
-              }
-            >
-              <ComposerControlIcon
-                icon={ListTodoIcon}
-                className={props.planSidebarOpen ? "text-current opacity-100" : undefined}
-              />
-              <span className="sr-only sm:not-sr-only">{props.planSidebarLabel}</span>
-            </TooltipTrigger>
-            <TooltipPopup side="top">{planSidebarTooltip}</TooltipPopup>
-          </Tooltip>
-        </>
-      ) : null}
     </>
   );
 });
@@ -566,10 +550,6 @@ export interface ChatComposerProps {
   // Plan
   showPlanFollowUpPrompt: boolean;
   activeProposedPlan: LatestProposedPlanState | null;
-  activePlan: { runId?: RunId | null } | null;
-  sidebarProposedPlan: { runId?: RunId | null } | null;
-  planSidebarLabel: string;
-  planSidebarOpen: boolean;
 
   // Mode
   runtimeMode: RuntimeMode;
@@ -627,7 +607,6 @@ export interface ChatComposerProps {
   toggleInteractionMode: () => void;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
-  togglePlanSidebar: () => void;
 
   focusComposer: () => void;
   scheduleComposerFocus: () => void;
@@ -669,10 +648,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     respondingRequestIds,
     showPlanFollowUpPrompt,
     activeProposedPlan,
-    activePlan,
-    sidebarProposedPlan,
-    planSidebarLabel,
-    planSidebarOpen,
     runtimeMode,
     interactionMode,
     lockedProvider,
@@ -706,7 +681,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     toggleInteractionMode,
     handleRuntimeModeChange,
     handleInteractionModeChange,
-    togglePlanSidebar,
     focusComposer,
     scheduleComposerFocus,
     setThreadError,
@@ -1197,7 +1171,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isComposerCollapsedMobile && !isComposerApprovalState && pendingUserInputs.length === 0;
 
   const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
-  const showPlanSidebarToggle = Boolean(activePlan || sidebarProposedPlan || planSidebarOpen);
   const composerFooterActionLayoutKey = useMemo(() => {
     if (activePendingProgress) {
       return `pending:${activePendingProgress.questionIndex}:${activePendingProgress.isLastQuestion}:${activePendingIsResponding}`;
@@ -3180,7 +3153,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
           {/* Bottom toolbar */}
           {isComposerCollapsedMobile ? null : activePendingApproval ? (
-            <div className="flex items-center justify-end gap-2 px-2.5 pb-2.5 sm:px-3 sm:pb-3">
+            <div className="flex items-center justify-end gap-2 px-3 pb-3 sm:px-4 sm:pb-4">
               <ComposerPendingApprovalActions
                 requestId={activePendingApproval.requestId}
                 isResponding={respondingRequestIds.includes(activePendingApproval.requestId)}
@@ -3193,7 +3166,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               data-chat-composer-footer="true"
               data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
               className={cn(
-                "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-2.5 pb-2.5 sm:px-3 sm:pb-3",
+                "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4",
                 pendingUserInputs.length > 0 && "pt-2",
                 isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                 showMobilePendingAnswerActions && "hidden sm:flex",
@@ -3227,6 +3200,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     instanceEntries={providerInstanceEntries}
                     keybindings={keybindings}
                     modelOptionsByInstance={modelOptionsByInstance}
+                    triggerClassName="-ms-px ps-0"
                     terminalOpen={terminalOpen}
                     open={isComposerModelPickerOpen}
                     {...(composerProviderState.modelPickerIconClassName
@@ -3245,15 +3219,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
                 {isComposerFooterCompact ? (
                   <CompactComposerControlsMenu
-                    activePlan={showPlanSidebarToggle}
                     interactionMode={interactionMode}
-                    planSidebarLabel={planSidebarLabel}
-                    planSidebarOpen={planSidebarOpen}
                     runtimeMode={runtimeMode}
                     showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                     traitsMenuContent={providerTraitsMenuContent}
                     onToggleInteractionMode={toggleInteractionMode}
-                    onTogglePlanSidebar={togglePlanSidebar}
                     onRuntimeModeChange={handleRuntimeModeChange}
                   />
                 ) : (
@@ -3268,12 +3238,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                       interactionMode={interactionMode}
                       runtimeMode={runtimeMode}
-                      showPlanToggle={showPlanSidebarToggle}
-                      planSidebarLabel={planSidebarLabel}
-                      planSidebarOpen={planSidebarOpen}
+                      showPlanToggle={false}
                       onToggleInteractionMode={toggleInteractionMode}
                       onRuntimeModeChange={handleRuntimeModeChange}
-                      onTogglePlanSidebar={togglePlanSidebar}
                     />
                   </>
                 )}

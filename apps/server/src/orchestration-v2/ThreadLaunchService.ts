@@ -21,6 +21,7 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import { buildTemporaryWorktreeBranchName, isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -31,6 +32,7 @@ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as IdAllocator from "./IdAllocator.ts";
 import { makeProviderFailure } from "./ProviderFailure.ts";
+import { randomUuidV4 } from "./RandomUuid.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 export type ThreadLaunchWorkspaceStrategy =
@@ -59,6 +61,7 @@ export interface ThreadLaunchInput {
   readonly reuseExistingThread?: boolean;
   readonly projectId: ProjectId;
   readonly title: string;
+  readonly generateTitle?: boolean;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
@@ -110,16 +113,6 @@ export class ThreadLaunchService extends Context.Service<
 >()("t3/orchestration-v2/ThreadLaunchService") {}
 
 const isThreadLaunchError = Schema.is(ThreadLaunchError);
-
-function fallbackBranchName(threadId: ThreadId): string {
-  const suffix = String(threadId)
-    .split(":")
-    .at(-1)
-    ?.replace(/[^a-zA-Z0-9-]+/gu, "-")
-    .replace(/^-+|-+$/gu, "")
-    .slice(0, 16);
-  return `thread-${suffix || "new"}`;
-}
 
 function failureDetail(error: unknown): string {
   if (isThreadLaunchError(error)) {
@@ -198,59 +191,38 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-    if (input.title === "New thread" && input.initialMessage !== undefined) {
-      yield* textGeneration
-        .generateThreadTitle({
-          cwd: project.workspaceRoot,
-          message: input.initialMessage.text,
-          attachments: input.initialMessage.attachments,
-          modelSelection: input.modelSelection,
-        })
-        .pipe(
-          Effect.flatMap((result) =>
-            threads.dispatch({
-              type: "thread.metadata.update",
-              commandId: CommandId.make(`${input.commandId}:title`),
-              threadId,
-              title: result.title,
-            }),
-          ),
-          Effect.catchCause((cause) =>
-            Effect.logWarning("Thread title generation failed", {
-              commandId: input.commandId,
-              threadId,
-              cause,
-            }),
-          ),
-          Effect.forkIn(preparationScope),
-        );
-    }
-
     const initialMessage = input.initialMessage;
-    let branch =
-      input.workspaceStrategy.type === "worktree" &&
-      input.workspaceStrategy.branch === undefined &&
-      initialMessage !== undefined
-        ? yield* Effect.gen(function* () {
-            const settings = yield* serverSettings.getSettings;
-            const modelSelection =
-              settings.sourceControlWriterModelSelection === null
-                ? settings.textGenerationModelSelection
-                : ServerSettings.resolveSourceControlWriterModelSelection(
-                    settings,
-                    yield* providerRegistry.getProviders,
-                  );
-            return yield* textGeneration
-              .generateBranchName({
-                cwd: project.workspaceRoot,
-                message: initialMessage.text,
-                attachments: initialMessage.attachments,
-                modelSelection,
-              })
-              .pipe(Effect.map((result) => result.branch));
-          }).pipe(Effect.mapError(mapError(input, "generate-metadata", threadId)))
-        : (input.workspaceStrategy.branch ??
-          (input.workspaceStrategy.type === "worktree" ? fallbackBranchName(threadId) : null));
+    const generateBranchNameFor = (cwd: string, message: ThreadLaunchInitialMessage) =>
+      Effect.gen(function* () {
+        const settings = yield* serverSettings.getSettings;
+        const modelSelection =
+          settings.sourceControlWriterModelSelection === null
+            ? settings.textGenerationModelSelection
+            : ServerSettings.resolveSourceControlWriterModelSelection(
+                settings,
+                yield* providerRegistry.getProviders,
+              );
+        return yield* textGeneration
+          .generateBranchName({
+            cwd,
+            message: message.text,
+            attachments: message.attachments,
+            modelSelection,
+          })
+          .pipe(Effect.map((result) => result.branch));
+      });
+
+    // The server owns worktree naming: without an explicit branch, provision
+    // under a temporary `t3code/<hash>` name so the worktree never waits on
+    // name generation, then rename in the background below.
+    const requestedBranch = input.workspaceStrategy.branch;
+    let branch: string | null;
+    if (input.workspaceStrategy.type === "worktree" && requestedBranch === undefined) {
+      const uuid = yield* randomUuidV4;
+      branch = buildTemporaryWorktreeBranchName(() => uuid.replaceAll("-", ""));
+    } else {
+      branch = requestedBranch ?? null;
+    }
     let worktreePath =
       input.workspaceStrategy.type === "existing_worktree"
         ? input.workspaceStrategy.worktreePath
@@ -305,6 +277,41 @@ export const make = Effect.gen(function* () {
         worktreePath,
       })
       .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+
+    // Rename temporary branches (server-invented above, or sent by clients
+    // that name worktrees themselves) in the background so generation latency
+    // never delays provisioning or the provider turn. The temporary name
+    // simply sticks if generation or the rename fails.
+    if (
+      worktreePath !== null &&
+      branch !== null &&
+      initialMessage !== undefined &&
+      isTemporaryWorktreeBranch(branch)
+    ) {
+      const oldBranch = branch;
+      const worktreeCwd = worktreePath;
+      yield* generateBranchNameFor(worktreeCwd, initialMessage).pipe(
+        Effect.flatMap((newBranch) => git.renameBranch({ cwd: worktreeCwd, oldBranch, newBranch })),
+        Effect.flatMap((renamed) =>
+          threads.dispatch({
+            type: "thread.metadata.update",
+            commandId: CommandId.make(`${input.commandId}:branch-rename`),
+            threadId,
+            branch: renamed.branch,
+            worktreePath: worktreeCwd,
+          }),
+        ),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Thread worktree branch rename failed", {
+            commandId: input.commandId,
+            threadId,
+            oldBranch,
+            cause,
+          }),
+        ),
+        Effect.forkIn(preparationScope),
+      );
+    }
 
     const cwd = worktreePath ?? project.workspaceRoot;
     if (runId !== null) {
@@ -502,6 +509,7 @@ export const make = Effect.gen(function* () {
               messageId,
               text: input.initialMessage.text,
               attachments: input.initialMessage.attachments,
+              ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
               modelSelection: input.modelSelection,
               dispatchMode: { type: "defer_start" },
               createdBy: input.createdBy,

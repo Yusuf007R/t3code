@@ -59,6 +59,7 @@ import {
   MousePointerClickIcon,
   PaintbrushIcon,
   MinusIcon,
+  Redo2Icon,
   SquarePenIcon,
   TerminalIcon,
   Undo2Icon,
@@ -177,6 +178,14 @@ const TIMELINE_LIST_HEADER = <div className="h-3 sm:h-4" />;
 const TIMELINE_LIST_FADE_HEADER = <div className="h-10 sm:h-12" />;
 const TIMELINE_LIST_FOOTER = <div className="h-3 sm:h-4" />;
 const EMPTY_TIMELINE_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
+const TIMELINE_MAINTAIN_SCROLL_AT_END = {
+  animated: false,
+  on: {
+    dataChange: true,
+    itemLayout: true,
+    layout: true,
+  },
+} as const;
 const EMPTY_TIMELINE_PROVIDERS: ReadonlyArray<ServerProvider> = [];
 const EMPTY_TIMELINE_RUNS: ReadonlyArray<HandoffTimelineRun> = [];
 
@@ -188,6 +197,10 @@ interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  pendingBackgroundTasks?: ReadonlyArray<{
+    readonly taskId: string;
+    readonly description?: string | undefined;
+  }> | null;
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
   latestRun: TimelineLatestRun | null;
@@ -224,6 +237,13 @@ interface MessagesTimelineProps {
   onAnchorSizeChanged: (messageId: MessageId, size: number) => void;
   contentInsetEndAdjustment: number;
   onIsAtEndChange: (isAtEnd: boolean) => void;
+  /**
+   * Whether the timeline should keep pinning to the live edge as content
+   * grows. Off while the user is reading history; LegendList's own
+   * maintainScrollAtEnd would otherwise re-pin regardless of ChatView's
+   * scroll-mode refs whenever the user drifts near the bottom.
+   */
+  liveFollowEnabled: boolean;
   onManualNavigation: () => void;
   hideEmptyPlaceholder?: boolean;
   topFadeEnabled?: boolean;
@@ -237,6 +257,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
+  pendingBackgroundTasks = null,
   listRef,
   timelineEntries,
   latestRun,
@@ -264,6 +285,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onAnchorSizeChanged,
   contentInsetEndAdjustment,
   onIsAtEndChange,
+  liveFollowEnabled,
   onManualNavigation,
   hideEmptyPlaceholder = false,
   topFadeEnabled = false,
@@ -273,29 +295,80 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     new Set(),
   );
   const [minimapStripMap] = useState(() => new Map<string, HTMLSpanElement>());
+  const [disclosureToggleSettling, setDisclosureToggleSettling] = useState(false);
+  const disclosureAnchorKeyRef = useRef<string | null>(null);
+  const disclosureSettleFrameRef = useRef<number | null>(null);
+  const disclosureSettleSecondFrameRef = useRef<number | null>(null);
 
-  const onToggleTurnFold = useCallback((runId: RunId) => {
-    setExpandedRunIds((existing) => {
-      const next = new Set(existing);
-      if (next.has(runId)) {
-        next.delete(runId);
-      } else {
-        next.add(runId);
+  useEffect(() => {
+    return () => {
+      if (disclosureSettleFrameRef.current !== null) {
+        cancelAnimationFrame(disclosureSettleFrameRef.current);
       }
-      return next;
+      if (disclosureSettleSecondFrameRef.current !== null) {
+        cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
+      }
+    };
+  }, []);
+
+  // A fold toggle inserts/removes rows around the toggled row. Suspending
+  // LegendList's end-scroll maintenance for two frames and anchoring
+  // maintainVisibleContentPosition to the toggled row keeps the trigger
+  // stationary under the pointer instead of the viewport chasing the end.
+  const suspendEndScrollMaintenanceForDisclosure = useCallback((anchorKey: string) => {
+    disclosureAnchorKeyRef.current = anchorKey;
+    setDisclosureToggleSettling(true);
+    if (disclosureSettleFrameRef.current !== null) {
+      cancelAnimationFrame(disclosureSettleFrameRef.current);
+    }
+    if (disclosureSettleSecondFrameRef.current !== null) {
+      cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
+    }
+    disclosureSettleFrameRef.current = requestAnimationFrame(() => {
+      disclosureSettleSecondFrameRef.current = requestAnimationFrame(() => {
+        disclosureAnchorKeyRef.current = null;
+        setDisclosureToggleSettling(false);
+        disclosureSettleFrameRef.current = null;
+        disclosureSettleSecondFrameRef.current = null;
+      });
     });
   }, []);
-  const onToggleAttemptFold = useCallback((attemptId: RunAttemptId) => {
-    setExpandedAttemptIds((existing) => {
-      const next = new Set(existing);
-      if (next.has(attemptId)) {
-        next.delete(attemptId);
-      } else {
-        next.add(attemptId);
-      }
-      return next;
-    });
+
+  const shouldRestoreVisibleContentPosition = useCallback((row: MessagesTimelineRow) => {
+    const disclosureAnchorKey = disclosureAnchorKeyRef.current;
+    return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
   }, []);
+
+  const onToggleTurnFold = useCallback(
+    (runId: RunId) => {
+      suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
+      setExpandedRunIds((existing) => {
+        const next = new Set(existing);
+        if (next.has(runId)) {
+          next.delete(runId);
+        } else {
+          next.add(runId);
+        }
+        return next;
+      });
+    },
+    [suspendEndScrollMaintenanceForDisclosure],
+  );
+  const onToggleAttemptFold = useCallback(
+    (attemptId: RunAttemptId) => {
+      suspendEndScrollMaintenanceForDisclosure(`attempt-fold:${attemptId}`);
+      setExpandedAttemptIds((existing) => {
+        const next = new Set(existing);
+        if (next.has(attemptId)) {
+          next.delete(attemptId);
+        } else {
+          next.add(attemptId);
+        }
+        return next;
+      });
+    },
+    [suspendEndScrollMaintenanceForDisclosure],
+  );
 
   // An in-session interrupt leaves its turn expanded so the user keeps their
   // place; the next turn (or a reload, since this is local state) folds it.
@@ -335,6 +408,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedAttemptIds,
         isWorking,
         activeTurnStartedAt,
+        pendingBackgroundTasks,
         turnDiffSummaryByAssistantMessageId,
         revertTurnCountByUserMessageId,
       }),
@@ -345,6 +419,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       expandedAttemptIds,
       isWorking,
       activeTurnStartedAt,
+      pendingBackgroundTasks,
       turnDiffSummaryByAssistantMessageId,
       revertTurnCountByUserMessageId,
     ],
@@ -386,14 +461,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const maintainVisibleContentPosition = useMemo(
     () => ({
       data: true,
-      size: false,
+      size: true,
+      shouldRestorePosition: shouldRestoreVisibleContentPosition,
     }),
-    [],
+    [shouldRestoreVisibleContentPosition],
   );
 
   const handleScroll = useCallback(() => {
     const state = listRef.current?.getState?.();
-    const isAtEnd = resolveTimelineIsAtEnd(state);
+    const isAtEnd = resolveTimelineIsAtEnd(state, contentInsetEndAdjustment);
     if (isAtEnd !== undefined) {
       onIsAtEndChange(isAtEnd);
     }
@@ -424,7 +500,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         strip.dataset.inView = next;
       }
     }
-  }, [listRef, minimapItems, minimapStripMap, onIsAtEndChange]);
+  }, [listRef, minimapItems, minimapStripMap, onIsAtEndChange, contentInsetEndAdjustment]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(handleScroll);
@@ -566,13 +642,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             initialScrollAtEnd
             {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
             contentInsetEndAdjustment={contentInsetEndAdjustment}
-            // The app owns end-following (ChatView live-follow + scroll-to-end
-            // pill), which respects the user's scroll gestures. LegendList's
-            // internal maintainScrollAtEnd races post-mount measurement: it
-            // caches its at-end flag while a maintain cycle is active, so
-            // overlapping item-layout reconciliations keep snapping the view
-            // to stale content ends even after the user scrolled away.
-            maintainScrollAtEnd={false}
+            // LegendList owns ordinary end-follow (#5449): the app only turns
+            // it off while the user reads history (liveFollowEnabled), while a
+            // sent turn anchors near the top (anchoredEndSpace), or for the
+            // two-frame settle window of a fold toggle.
+            maintainScrollAtEnd={
+              anchoredEndSpace || !liveFollowEnabled || disclosureToggleSettling
+                ? false
+                : TIMELINE_MAINTAIN_SCROLL_AT_END
+            }
             maintainVisibleContentPosition={maintainVisibleContentPosition}
             onScroll={handleScroll}
             className={cn(
@@ -916,12 +994,16 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       className={cn(
         // Commentary (non-terminal assistant) rows carry no metadata row, so
         // they sit closer to the work that follows them.
-        (row.kind === "message" && row.message.role === "assistant" && !row.showAssistantMeta) ||
-          row.kind === "work" ||
-          row.kind === "event" ||
-          row.kind === "attempt-fold"
-          ? "pb-2"
-          : "pb-4",
+        row.kind === "turn-fold"
+          ? "pb-0"
+          : (row.kind === "message" &&
+                row.message.role === "assistant" &&
+                !row.showAssistantMeta) ||
+              row.kind === "work" ||
+              row.kind === "event" ||
+              row.kind === "attempt-fold"
+            ? "pb-2"
+            : "pb-4",
         row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
       )}
       data-timeline-row-id={row.id}
@@ -939,6 +1021,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
+      {row.kind === "waiting-background" ? <WaitingBackgroundTimelineRow row={row} /> : null}
     </div>
   );
 });
@@ -974,6 +1057,9 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         >
           Sent by another agent
         </p>
+      ) : null}
+      {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (
+        <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
       <div className="relative max-w-[80%] rounded-2xl bg-accent p-3">
         {regularImages.length > 0 && (
@@ -1033,23 +1119,14 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           markdownCwd={ctx.markdownCwd}
         />
       </div>
-      {(row.message.inputIntent && row.message.inputIntent !== "turn_start") ||
-      (row.projectedItem &&
-        row.projectedItem.item.status !== "completed" &&
-        row.projectedItem.item.status !== "pending" &&
-        row.projectedItem.item.status !== "waiting") ? (
+      {row.projectedItem &&
+      row.projectedItem.item.status !== "completed" &&
+      row.projectedItem.item.status !== "pending" &&
+      row.projectedItem.item.status !== "waiting" ? (
         <div className="me-1 flex items-center gap-1.5">
-          {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (
-            <UserMessageIntentBadge intent={row.message.inputIntent} />
-          ) : null}
-          {row.projectedItem &&
-          row.projectedItem.item.status !== "completed" &&
-          row.projectedItem.item.status !== "pending" &&
-          row.projectedItem.item.status !== "waiting" ? (
-            <span className="rounded-full border border-destructive/25 bg-destructive/8 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
-              {row.projectedItem.item.status}
-            </span>
-          ) : null}
+          <span className="rounded-full border border-destructive/25 bg-destructive/8 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+            {row.projectedItem.item.status}
+          </span>
         </div>
       ) : null}
       <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
@@ -1074,26 +1151,31 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   );
 }
 
-function UserMessageIntentBadge({
+function UserMessageIntentMarker({
   intent,
 }: {
   readonly intent: NonNullable<TimelineMessage["inputIntent"]>;
 }) {
   const presentation =
     intent === "queued_turn"
-      ? { label: "queued", className: "border-amber-500/25 bg-amber-500/8 text-amber-700" }
+      ? {
+          label: "Queued",
+          icon: null,
+        }
       : intent === "promoted_queued_to_steer"
         ? {
-            label: "queued → steer",
-            className: "border-sky-500/25 bg-sky-500/8 text-sky-700",
+            label: "Steer",
+            icon: Redo2Icon,
           }
-        : { label: "steer", className: "border-sky-500/25 bg-sky-500/8 text-sky-700" };
+        : {
+            label: "Steer",
+            icon: Redo2Icon,
+          };
+  const IntentIcon = presentation.icon;
   return (
-    <span
-      className={cn(
-        "me-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wide",
-        presentation.className,
-      )}
+    <div
+      className="me-1 flex items-center justify-end gap-1 text-xs leading-none text-muted-foreground"
+      data-user-message-intent={intent}
       title={
         intent === "queued_turn"
           ? "Queued behind the active turn"
@@ -1102,8 +1184,9 @@ function UserMessageIntentBadge({
             : "Steered the active turn"
       }
     >
+      {IntentIcon ? <IntentIcon aria-hidden="true" className="size-3" /> : null}
       {presentation.label}
-    </span>
+    </div>
   );
 }
 
@@ -1137,7 +1220,7 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
   const Icon = row.expanded ? ChevronDownIcon : ChevronRightIcon;
 
   return (
-    <div className="border-b border-border/60 pb-2 pt-1">
+    <div className="pb-2 pt-1">
       <button
         type="button"
         aria-expanded={row.expanded}
@@ -1416,6 +1499,85 @@ function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event"
   }
   const presentation = v2EventPresentation(item);
   const Icon = presentation.icon;
+  if (item.type === "error") {
+    return (
+      <details
+        className={cn(
+          "group rounded-md border",
+          presentation.tone === "warning" && "border-amber-500/25 bg-amber-500/5",
+          presentation.tone === "danger" && "border-destructive/25 bg-destructive/5",
+          presentation.tone === "success" && "border-emerald-500/20 bg-emerald-500/5",
+        )}
+        data-v2-item-type={item.type}
+        data-v2-item-visibility={visibility}
+        data-v2-event-disclosure="true"
+      >
+        <summary className="flex min-w-0 cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-xs [&::-webkit-details-marker]:hidden">
+          <Icon
+            className={cn(
+              "size-3.5 shrink-0",
+              presentation.tone === "warning" && "text-amber-600 dark:text-amber-400",
+              presentation.tone === "danger" && "text-destructive",
+              presentation.tone === "success" && "text-emerald-600 dark:text-emerald-400",
+            )}
+          />
+          <span className="shrink-0 font-medium text-foreground/90">{presentation.label}</span>
+          {item.status !== "completed" ? (
+            <span
+              className={cn(
+                "shrink-0 rounded-full border px-1.5 py-0.5 font-mono text-[10px]",
+                item.status === "failed"
+                  ? "border-destructive/40 text-destructive"
+                  : "border-border/70 text-muted-foreground",
+              )}
+            >
+              {item.status}
+            </span>
+          ) : null}
+          {presentation.detail ? (
+            <span className="min-w-0 flex-1 truncate text-muted-foreground/65">
+              {presentation.detail}
+            </span>
+          ) : null}
+          {visibility !== "local" ? (
+            <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {visibility === "inherited" ? "Inherited" : "Synthetic"}
+            </span>
+          ) : null}
+          <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground/60 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-border/45 px-3 py-2 ps-8">
+          {presentation.detail ? (
+            <div className="text-xs leading-relaxed text-muted-foreground">
+              <ChatMarkdown
+                text={presentation.detail}
+                cwd={ctx.markdownCwd}
+                threadRef={ctx.threadRef ?? undefined}
+                skills={ctx.skills}
+                lineBreaks
+              />
+            </div>
+          ) : null}
+          {visibility === "inherited" ? (
+            <p className="mt-1 font-mono text-[10px] text-muted-foreground/65">
+              From {sourceThreadId}
+            </p>
+          ) : null}
+          <div className={presentation.detail ? "mt-2" : undefined}>
+            <V2ItemInspector
+              projectedItem={row.projectedItem}
+              environmentId={ctx.activeThreadEnvironmentId}
+              cwd={ctx.markdownCwd}
+              workspaceRoot={ctx.workspaceRoot}
+              onOpenThread={ctx.onOpenThread}
+              onOpenTurnDiff={ctx.onOpenTurnDiff}
+              onRollbackCheckpoint={ctx.onRollbackCheckpoint}
+            />
+          </div>
+        </div>
+      </details>
+    );
+  }
   return (
     <section
       className={cn(
@@ -1510,6 +1672,25 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
             "Working..."
           )}
         </span>
+      </div>
+    </div>
+  );
+}
+
+function WaitingBackgroundTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "waiting-background" }>;
+}) {
+  return (
+    <div className="py-0.5 pl-1.5">
+      <div className="flex items-center gap-2 pt-1 text-[11px] text-muted-foreground/70 tabular-nums">
+        <span className="inline-flex items-center gap-[3px]">
+          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse" />
+          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse [animation-delay:200ms]" />
+          <span className="h-1 w-1 rounded-full bg-muted-foreground/30 animate-status-pulse [animation-delay:400ms]" />
+        </span>
+        <span className="line-clamp-2 min-w-0 flex-1 break-words">{row.label}</span>
       </div>
     </div>
   );

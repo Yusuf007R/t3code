@@ -153,6 +153,156 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
     }),
   );
 
+  it.effect("preserves delegated completion ownership across stale run and task updates", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const later = DateTime.add(now, { seconds: 1 });
+      const threadId = ThreadId.make("thread:projection-delegated-completion");
+      const projectId = ProjectId.make("project:projection-delegated-completion");
+      const runId = RunId.make("run:projection-delegated-completion");
+      const rootNodeId = NodeId.make("node:projection-delegated-completion-root");
+      const taskId = NodeId.make("node:projection-delegated-completion-task");
+      const thread = {
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        id: threadId,
+        projectId,
+        title: "Delegated completion projection",
+        providerInstanceId,
+        modelSelection,
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+        branch: null,
+        worktreePath: null,
+        activeProviderThreadId: null,
+        lineage: {
+          parentThreadId: null,
+          relationshipToParent: null,
+          rootThreadId: threadId,
+        },
+        forkedFrom: null,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      };
+      const run = {
+        id: runId,
+        threadId,
+        ordinal: 1,
+        providerInstanceId,
+        modelSelection,
+        providerThreadId: null,
+        userMessageId: MessageId.make("message:projection-delegated-completion"),
+        rootNodeId,
+        activeAttemptId: null,
+        status: "running" as const,
+        requestedAt: now,
+        startedAt: now,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+        delegatedCompletion: {
+          disposition: "stopped" as const,
+          nextGeneration: 2,
+          delivery: null,
+        },
+      };
+      const task = {
+        id: taskId,
+        threadId,
+        runId,
+        parentNodeId: rootNodeId,
+        origin: "app_owned" as const,
+        createdBy: "agent" as const,
+        driver,
+        providerInstanceId,
+        providerThreadId: null,
+        childThreadId: null,
+        nativeTaskRef: null,
+        prompt: "Inspect the stop barrier.",
+        title: null,
+        model: null,
+        completionWake: "always" as const,
+        completionDelivery: {
+          state: "disposed" as const,
+          observedByRunId: null,
+        },
+        status: "running" as const,
+        result: null,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+      };
+
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-delegated-completion:thread"),
+        type: "thread.created",
+        threadId,
+        occurredAt: now,
+        payload: thread,
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-delegated-completion:run"),
+        type: "run.updated",
+        threadId,
+        runId,
+        nodeId: rootNodeId,
+        providerInstanceId,
+        occurredAt: now,
+        payload: run,
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-delegated-completion:task"),
+        type: "subagent.updated",
+        threadId,
+        runId,
+        nodeId: taskId,
+        driver,
+        providerInstanceId,
+        occurredAt: now,
+        payload: task,
+      });
+
+      const { delegatedCompletion: _delegatedCompletion, ...staleRun } = run;
+      const { completionDelivery: _completionDelivery, ...staleTask } = task;
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-delegated-completion:stale-run"),
+        type: "run.updated",
+        threadId,
+        runId,
+        nodeId: rootNodeId,
+        providerInstanceId,
+        occurredAt: later,
+        payload: { ...staleRun, status: "interrupted", completedAt: later },
+      });
+      yield* projectionStore.apply({
+        id: EventId.make("event:projection-delegated-completion:stale-task"),
+        type: "subagent.updated",
+        threadId,
+        runId,
+        nodeId: taskId,
+        driver,
+        providerInstanceId,
+        occurredAt: later,
+        payload: {
+          ...staleTask,
+          status: "interrupted",
+          completedAt: later,
+          updatedAt: later,
+        },
+      });
+
+      const projection = yield* projectionStore.getThreadProjection(threadId);
+      assert.deepEqual(projection.runs[0]?.delegatedCompletion, run.delegatedCompletion);
+      assert.deepEqual(projection.subagents[0]?.completionDelivery, task.completionDelivery);
+    }),
+  );
+
   it.effect("only exposes interruptible runs through the shell activeRunId", () =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStoreV2;
@@ -668,6 +818,9 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
       const assistantMessageId = MessageId.make("message:projection-rollback-prune:assistant");
       const userTurnItemId = TurnItemId.make("turn-item:projection-rollback-prune:user");
       const assistantTurnItemId = TurnItemId.make("turn-item:projection-rollback-prune:assistant");
+      const backgroundTurnItemId = TurnItemId.make(
+        "turn-item:projection-rollback-prune:background",
+      );
 
       yield* projectionStore.apply({
         id: EventId.make("event:projection-rollback-prune:thread-created"),
@@ -954,6 +1107,33 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
         },
       });
       yield* projectionStore.apply({
+        id: EventId.make("event:projection-rollback-prune:background-item"),
+        type: "turn-item.updated",
+        threadId,
+        runId,
+        nodeId: rootNodeId,
+        driver,
+        occurredAt: now,
+        payload: {
+          id: backgroundTurnItemId,
+          threadId,
+          runId,
+          nodeId: rootNodeId,
+          providerThreadId,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: 300,
+          status: "running",
+          title: "rolled back background command",
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          type: "command_execution",
+          input: "sleep 60",
+        },
+      });
+      yield* projectionStore.apply({
         id: EventId.make("event:projection-rollback-prune:run-rolled-back"),
         type: "run.updated",
         threadId,
@@ -1021,8 +1201,16 @@ it.layer(TestLayer)("ProjectionStoreV2", (it) => {
       );
       assert.lengthOf(projection.providerTurns, 1);
       assert.lengthOf(projection.messages, 2);
-      assert.lengthOf(projection.turnItems, 2);
+      assert.lengthOf(projection.turnItems, 3);
       assert.lengthOf(projection.visibleTurnItems, 0);
+
+      // A rolled-back run's background item is abandoned, not pending. The
+      // shell must not report it as Waiting, or the sidebar shows Waiting for
+      // work nothing will ever finish.
+      const shell = yield* projectionStore.getShellSnapshot();
+      const rolledBackShellThread = shell.threads.find((entry) => entry.id === threadId);
+      assert.isDefined(rolledBackShellThread);
+      assert.deepEqual(rolledBackShellThread?.pendingBackgroundTasks ?? [], []);
     }),
   );
 

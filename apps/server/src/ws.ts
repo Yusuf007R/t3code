@@ -106,6 +106,7 @@ import { parseBase64DataUrl } from "./imageMime.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
+import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
@@ -571,6 +572,7 @@ const makeWsRpcLayer = (
           settings,
           shellResumeCompletionMarker: true,
           threadResumeCompletionMarker: true,
+          threadSnapshotPagination: true,
         };
       });
 
@@ -1044,6 +1046,8 @@ const makeWsRpcLayer = (
                   ? command.targetThreadId
                   : command.type === "delegated_task.request" ||
                       command.type === "delegated_task.wake-policy" ||
+                      command.type === "delegated_task.completion-delivery.acknowledge" ||
+                      command.type === "delegated_task.completion-delivery.dispose" ||
                       command.type === "thread.created.record"
                     ? command.parentThreadId
                     : command.threadId,
@@ -1051,6 +1055,12 @@ const makeWsRpcLayer = (
                 ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
                 : {}),
             },
+          ),
+        [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_V2_WS_METHODS.getWorkflowScript,
+            readWorkflowScript({ scriptPath: input.scriptPath }),
+            { "rpc.aggregate": "orchestration" },
           ),
         [ORCHESTRATION_V2_WS_METHODS.getTurnDiff]: (input) =>
           observeRpcEffect(
@@ -1131,6 +1141,9 @@ const makeWsRpcLayer = (
                     : { reuseExistingThread: input.reuseExistingThread }),
                   projectId: input.projectId,
                   title: input.title,
+                  ...(input.generateTitle === undefined
+                    ? {}
+                    : { generateTitle: input.generateTitle }),
                   modelSelection: input.modelSelection,
                   runtimeMode: input.runtimeMode,
                   interactionMode: input.interactionMode,
@@ -1714,6 +1727,12 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.reviewGetDiffPreview, review.getDiffPreview(input), {
             "rpc.aggregate": "review",
           }),
+        [WS_METHODS.reviewGetDiffFileContents]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.reviewGetDiffFileContents,
+            review.getDiffFileContents(input),
+            { "rpc.aggregate": "review" },
+          ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
             "rpc.aggregate": "terminal",

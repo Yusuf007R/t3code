@@ -13,6 +13,7 @@ import {
   type RunId,
 } from "@t3tools/contracts";
 import type { ThreadRunSummary } from "@t3tools/client-runtime/state/shell";
+import { formatPendingBackgroundWorkLabel } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import {
   resolveT3McpToolPresentation,
   type T3McpToolPresentation,
@@ -28,10 +29,35 @@ export const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
 export interface TimelineEndState {
   readonly isAtEnd?: boolean;
   readonly isNearEnd?: boolean;
+  readonly contentLength?: number;
+  readonly scroll?: number;
+  readonly scrollLength?: number;
 }
 
-export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boolean | undefined {
-  return state?.isNearEnd ?? state?.isAtEnd;
+/**
+ * The follow re-arm band (#5566): strict isAtEnd flickers false for a frame
+ * while streaming content grows under the viewport, so follow re-arms within
+ * this distance of the real content bottom instead.
+ */
+export const TIMELINE_FOLLOW_REARM_THRESHOLD_PX = 40;
+
+export function resolveTimelineIsAtEnd(
+  state: TimelineEndState | undefined,
+  endInset = 0,
+): boolean | undefined {
+  if (!state) {
+    return undefined;
+  }
+  if (state.isAtEnd) {
+    return true;
+  }
+  const { contentLength, scroll, scrollLength } = state;
+  if (contentLength === undefined || scroll === undefined || scrollLength === undefined) {
+    return state.isNearEnd ?? state.isAtEnd;
+  }
+  // contentLength includes the end inset (composer overlay), so subtract it to
+  // measure the distance to the real content bottom.
+  return contentLength - scroll - scrollLength - endInset <= TIMELINE_FOLLOW_REARM_THRESHOLD_PX;
 }
 
 export function resolveTimelineMinimapHeightStyle(itemCount: number): string {
@@ -191,7 +217,15 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
-  | { kind: "working"; id: string; createdAt: string | null };
+  | { kind: "working"; id: string; createdAt: string | null }
+  | {
+      kind: "waiting-background";
+      id: string;
+      createdAt: string | null;
+      description: string | null;
+      taskCount: number;
+      label: string;
+    };
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
@@ -489,6 +523,10 @@ export function deriveMessagesTimelineRows(input: {
   expandedAttemptIds?: ReadonlySet<RunAttemptId>;
   isWorking: boolean;
   activeTurnStartedAt: string | null;
+  pendingBackgroundTasks?: ReadonlyArray<{
+    readonly taskId: string;
+    readonly description?: string | undefined;
+  }> | null;
   turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
@@ -525,6 +563,15 @@ export function deriveMessagesTimelineRows(input: {
   for (let index = 0; index < input.timelineEntries.length; index += 1) {
     const timelineEntry = input.timelineEntries[index];
     if (!timelineEntry) {
+      continue;
+    }
+
+    // The terminal interrupt result is the useful timeline marker. The
+    // preceding request is transient bookkeeping and duplicates that marker.
+    if (
+      timelineEntry.kind === "event" &&
+      timelineEntry.projectedItem.item.type === "run_interrupt_request"
+    ) {
       continue;
     }
 
@@ -655,6 +702,20 @@ export function deriveMessagesTimelineRows(input: {
       id: "working-indicator-row",
       createdAt: input.activeTurnStartedAt,
     });
+  } else if (input.pendingBackgroundTasks && input.pendingBackgroundTasks.length > 0) {
+    // Root run settled but finite provider background work remains. Show Waiting
+    // instead of looking fully idle until the roster drains.
+    const firstTask = input.pendingBackgroundTasks[0];
+    nextRows.push({
+      kind: "waiting-background",
+      id: "waiting-background-row",
+      createdAt: input.activeTurnStartedAt,
+      description: firstTask?.description ?? null,
+      taskCount: input.pendingBackgroundTasks.length,
+      label:
+        formatPendingBackgroundWorkLabel(input.pendingBackgroundTasks) ??
+        "Waiting on a background task",
+    });
   }
 
   return nextRows;
@@ -687,6 +748,16 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   switch (a.kind) {
     case "working":
       return a.createdAt === (b as typeof a).createdAt;
+
+    case "waiting-background": {
+      const bw = b as typeof a;
+      return (
+        a.createdAt === bw.createdAt &&
+        a.description === bw.description &&
+        a.taskCount === bw.taskCount &&
+        a.label === bw.label
+      );
+    }
 
     case "turn-fold": {
       const bf = b as typeof a;

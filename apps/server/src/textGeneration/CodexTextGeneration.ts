@@ -3,11 +3,15 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { type CodexSettings, type ModelSelection } from "@t3tools/contracts";
+import {
+  type CodexSettings,
+  DEFAULT_TEXT_GENERATION_REASONING_EFFORT,
+  type ModelSelection,
+  TextGenerationError,
+} from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
@@ -15,7 +19,6 @@ import { resolveAttachmentPath } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import { expandHomePath } from "../pathExpansion.ts";
 import { codexExecLaunchArgs, resolveCodexLaunchArgs } from "../provider/Layers/codexLaunchArgs.ts";
-import { TextGenerationError } from "@t3tools/contracts";
 import * as TextGeneration from "./TextGeneration.ts";
 import {
   buildBranchNamePrompt,
@@ -33,9 +36,8 @@ import {
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { getCodexServiceTierOptionValue } from "../codexModelOptions.ts";
 
-const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
-const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
+const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 /**
  * Build a Codex text-generation closure bound to a specific `CodexSettings`
  * payload. See `makeCodexAdapter` for the overall per-instance rationale.
@@ -69,17 +71,33 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       ),
     );
 
+  const safeUnlink = (filePath: string): Effect.Effect<void, never> =>
+    fileSystem.remove(filePath).pipe(Effect.catch(() => Effect.void));
+
+  const removeTempFileDir = (filePath: string): Effect.Effect<void, never> =>
+    fileSystem
+      .remove(path.dirname(filePath), { recursive: true })
+      .pipe(Effect.catch(() => Effect.void));
+
+  // Deliberately unscoped: text generation runs from background fibers whose
+  // ambient scope may already be closed (a closed scope reaps the temp
+  // directory the moment it is created). Each allocation removes its own
+  // directory on failure; success-path cleanup is explicit in runCodexJson.
   const writeTempFile = (
     operation: string,
     prefix: string,
     content: string,
-  ): Effect.Effect<string, TextGenerationError, Scope.Scope> =>
+  ): Effect.Effect<string, TextGenerationError> =>
     fileSystem
-      .makeTempFileScoped({
+      .makeTempFile({
         prefix: `t3code-${prefix}-${process.pid}-`,
       })
       .pipe(
-        Effect.tap((filePath) => fileSystem.writeFileString(filePath, content)),
+        Effect.tap((filePath) =>
+          fileSystem
+            .writeFileString(filePath, content)
+            .pipe(Effect.onError(() => removeTempFileDir(filePath))),
+        ),
         Effect.mapError(
           (cause) =>
             new TextGenerationError({
@@ -89,9 +107,6 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
             }),
         ),
       );
-
-  const safeUnlink = (filePath: string): Effect.Effect<void, never> =>
-    fileSystem.remove(filePath).pipe(Effect.catch(() => Effect.void));
 
   const encodeJsonForOperation = (
     operation:
@@ -172,13 +187,15 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
       toJsonSchemaObject(outputSchemaJson),
     );
     const schemaPath = yield* writeTempFile(operation, "codex-schema", schemaJson);
-    const outputPath = yield* writeTempFile(operation, "codex-output", "");
+    const outputPath = yield* writeTempFile(operation, "codex-output", "").pipe(
+      Effect.onError(() => removeTempFileDir(schemaPath)),
+    );
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
       const launchArgs = resolveCodexLaunchArgs(codexConfig.launchArgs, resolvedEnvironment);
       const reasoningEffort =
         getModelSelectionStringOptionValue(modelSelection, "reasoningEffort") ??
-        CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT;
+        DEFAULT_TEXT_GENERATION_REASONING_EFFORT;
       const serviceTier = getCodexServiceTierOptionValue(modelSelection);
       const spawnCommand = yield* resolveSpawnCommand(
         codexConfig.binaryPath || "codex",
@@ -251,7 +268,11 @@ export const makeCodexTextGeneration = Effect.fn("makeCodexTextGeneration")(func
     });
 
     const cleanup = Effect.all(
-      [schemaPath, outputPath, ...cleanupPaths].map((filePath) => safeUnlink(filePath)),
+      [
+        removeTempFileDir(schemaPath),
+        removeTempFileDir(outputPath),
+        ...cleanupPaths.map((filePath) => safeUnlink(filePath)),
+      ],
       {
         concurrency: "unbounded",
       },

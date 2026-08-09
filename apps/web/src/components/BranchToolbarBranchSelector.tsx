@@ -37,6 +37,7 @@ import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
   THREAD_DETAILS_PANEL_ROW_POPUP_CLASS,
   THREAD_DETAILS_PANEL_ROW_CLASS,
+  THREAD_DETAILS_PANEL_SELECT_ROW_CLASS,
 } from "./chat/threadDetailsPanelStyles";
 import { parsePullRequestReference } from "../pullRequestReference";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
@@ -761,7 +762,7 @@ export function BranchToolbarBranchSelector({
             render={<Button variant="ghost" size={displayMode === "panel" ? "sm" : "xs"} />}
             className={cn(
               "min-w-0 max-w-full text-muted-foreground/70 hover:text-foreground/80",
-              displayMode === "panel" && THREAD_DETAILS_PANEL_ROW_CLASS,
+              displayMode === "panel" && THREAD_DETAILS_PANEL_SELECT_ROW_CLASS,
             )}
             disabled={isInitialBranchesLoadPending || isBranchActionPending}
           >
@@ -772,19 +773,23 @@ export function BranchToolbarBranchSelector({
               )}
             />
             <span
+              data-composer-label
               className={cn(
                 "min-w-0 max-w-[240px] truncate",
-                displayMode === "panel" && "max-w-none flex-1 text-left",
+                displayMode === "panel"
+                  ? "max-w-none flex-1 text-left"
+                  : "transition-[max-width,opacity] duration-300 ease-out group-data-[compact]/composer-context:max-w-0 group-data-[compact]/composer-context:opacity-0",
               )}
             >
               {triggerLabel}
             </span>
-            <ChevronDownIcon
-              className={cn(
-                "size-3 shrink-0 opacity-50",
-                displayMode === "panel" && THREAD_DETAILS_PANEL_CHEVRON_CLASS,
-              )}
-            />
+            {displayMode === "panel" ? (
+              <span data-slot="select-icon">
+                <ChevronDownIcon className={THREAD_DETAILS_PANEL_CHEVRON_CLASS} />
+              </span>
+            ) : (
+              <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+            )}
           </ComboboxTrigger>
         </span>
         {displayMode === "panel" && branchPr && branchPrStatus ? (

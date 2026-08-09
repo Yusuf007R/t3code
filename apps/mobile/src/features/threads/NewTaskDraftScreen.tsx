@@ -12,6 +12,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 
 import {
   ComposerEditor,
@@ -46,13 +47,14 @@ import {
   restoreComposerDraftSnapshot,
   type ComposerDraft,
 } from "../../state/use-composer-drafts";
-import { useProjects } from "../../state/entities";
-import { deriveThreadTitleFromPrompt } from "../../lib/projectThreadStartTurn";
+import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
+import { buildModelMenuActions, resolveSelectableModelSelection } from "../../lib/modelOptions";
 import { armAgentAwarenessLiveActivityForLocalWork } from "../agent-awareness/remoteRegistration";
 import { enqueueThreadOutboxMessage, removeThreadOutboxMessage } from "../../state/thread-outbox";
 import { useRemoteConnectionStatus } from "../../state/use-remote-environment-registry";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { useCreateProjectThread } from "./use-project-actions";
+import { resolveDraftProjectSelection } from "./new-task-project-selection";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { ComposerVoiceInput } from "./ComposerVoiceInput";
 import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
@@ -94,8 +96,11 @@ export function NewTaskDraftScreen(props: {
   const colorScheme = useColorScheme();
   const isKeyboardVisible = useKeyboardState((state) => state.isVisible);
   const controlsBottomPadding = isKeyboardVisible ? 8 : Math.max(insets.bottom, 10);
-  const { logicalProjects, selectedProject, setProject } = flow;
+  const { projectScopes, selectedProject, selectedProjectKey, setProject } = flow;
   const { connectedEnvironments } = useRemoteConnectionStatus();
+  const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
+    selectedProject?.environmentId ?? null,
+  );
   const environmentConnected =
     selectedProject !== null &&
     connectedEnvironments.find(
@@ -306,24 +311,25 @@ export function NewTaskDraftScreen(props: {
       return;
     }
 
-    if (selectedProject) {
+    const selection = resolveDraftProjectSelection(selectedProjectKey, projects, projectScopes);
+    if (selection.kind === "preserve") {
       return;
     }
-
-    if (logicalProjects.length === 1) {
-      setProject(logicalProjects[0]!.project);
+    if (selection.kind === "select") {
+      setProject(selection.project);
       return;
     }
 
     navigation.dispatch(StackActions.replace("NewTask"));
   }, [
-    logicalProjects,
+    projectScopes,
     projects,
     props.initialProjectRef,
     props.incomingShareId,
     props.pendingTaskId,
     navigation,
     selectedProject,
+    selectedProjectKey,
     setProject,
   ]);
 
@@ -572,27 +578,7 @@ export function NewTaskDraftScreen(props: {
   );
 
   const modelMenuActions = useMemo(
-    () =>
-      flow.providerGroups.map((group) => ({
-        id: `provider:${group.providerKey}`,
-        title: group.providerLabel,
-        subtitle: group.models.find(
-          (model) =>
-            flow.selectedModel &&
-            model.selection.instanceId === flow.selectedModel.instanceId &&
-            model.selection.model === flow.selectedModel.model,
-        )?.label,
-        subactions: group.models.map((option) => ({
-          id: `model:${option.key}`,
-          title: option.label,
-          state:
-            flow.selectedModel &&
-            option.selection.instanceId === flow.selectedModel.instanceId &&
-            option.selection.model === flow.selectedModel.model
-              ? ("on" as const)
-              : undefined,
-        })),
-      })),
+    () => buildModelMenuActions(flow.providerGroups, flow.selectedModel),
     [flow.providerGroups, flow.selectedModel],
   );
   const providerOptionDescriptors = useMemo(
@@ -828,7 +814,14 @@ export function NewTaskDraftScreen(props: {
       return;
     }
     const draft = getComposerDraftSnapshot(draftKey);
-    const modelSelection = draft.modelSelection ?? flow.selectedModel;
+    // Snapshot read keeps just-typed selector state; the availability gate
+    // still applies so a stored selection on a disabled provider falls back
+    // to the flow's resolved model.
+    const modelSelection =
+      resolveSelectableModelSelection(
+        selectedEnvironmentServerConfig,
+        draft.modelSelection ?? null,
+      ) ?? flow.selectedModel;
     const workspaceMode = draft.workspaceSelection?.mode ?? flow.workspaceMode;
     const selectedBranchName = draft.workspaceSelection?.branch ?? flow.selectedBranchName;
     const selectedWorktreePath =
@@ -880,7 +873,10 @@ export function NewTaskDraftScreen(props: {
       if (editingPendingTask) {
         flow.finishEditingPendingTask();
       } else {
-        clearComposerDraftContent(draftKey);
+        // Drop the workspace selection with the content: the next task should
+        // re-resolve mode/branch/origin from the server's configured defaults
+        // instead of resurrecting this task's picks.
+        clearComposerDraftContent(draftKey, { clearWorkspaceSelection: true });
       }
       navigation.getParent()?.goBack();
       return;
@@ -892,7 +888,10 @@ export function NewTaskDraftScreen(props: {
     // -only Activity start. If creation fails, the token registration's replay
     // finds no work and ends the card within seconds.
     armAgentAwarenessLiveActivityForLocalWork({
-      threadTitle: deriveThreadTitleFromPrompt(initialMessageText),
+      threadTitle: deriveThreadTitleSeed({
+        text: initialMessageText,
+        attachments: draft.attachments,
+      }),
       projectTitle: selectedProject.title,
     });
     const result = await createProjectThread({
@@ -938,7 +937,7 @@ export function NewTaskDraftScreen(props: {
       }
       flow.finishEditingPendingTask();
     } else {
-      clearComposerDraftContent(draftKey);
+      clearComposerDraftContent(draftKey, { clearWorkspaceSelection: true });
     }
     navigation.dispatch(
       StackActions.replace("Thread", {

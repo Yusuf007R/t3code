@@ -15,6 +15,7 @@ import { ProviderAdapterOpenSessionError } from "../ProviderAdapter.ts";
 import { ProviderAdapterDriverCreateError } from "../ProviderAdapterDriver.ts";
 import { makeDriverLayer as makeProviderAdapterRegistryDriverLayer } from "../ProviderAdapterRegistry.ts";
 import type { OrchestratorV2ProviderReplayHarness } from "../testkit/ProviderReplayHarness.ts";
+import type { ProviderReplayGate } from "../testkit/ProviderReplayGate.testkit.ts";
 import {
   CODEX_DEFAULT_INSTANCE_ID,
   CODEX_DRIVER_KIND,
@@ -186,13 +187,17 @@ export function makeCodexProviderAdapterRegistryReplayLayer(input: {
   return registryLayer;
 }
 
+const decodeCodexAppServerReplayTranscript = Schema.decodeUnknownEffect(
+  CodexReplay.CodexAppServerReplayTranscript,
+);
+
 export const CodexOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarness<
   CodexReplay.CodexAppServerReplayTranscript,
   CodexOrchestratorReplayHarnessError
 > = {
   driver: CODEX_DRIVER_KIND,
   decodeTranscript: (transcript) =>
-    Schema.decodeUnknownEffect(CodexReplay.CodexAppServerReplayTranscript)(transcript).pipe(
+    decodeCodexAppServerReplayTranscript(transcript).pipe(
       Effect.mapError(
         (cause) =>
           new CodexReplayTranscriptDecodeError({
@@ -201,13 +206,29 @@ export const CodexOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarness
           }),
       ),
     ),
-  makeProviderAdapterRegistryLayer: (transcript) => {
+  makeProviderAdapterRegistryLayer: (
+    transcript,
+    options: { readonly replayGate?: ProviderReplayGate } = {},
+  ) => {
     return Layer.effectContext(
-      CodexReplay.makeReplayDriver(transcript).pipe(
-        Effect.flatMap((driver) =>
-          Layer.build(makeCodexProviderAdapterRegistryReplayLayer({ transcript, driver })),
-        ),
-      ),
+      Effect.gen(function* () {
+        const replayGate = options.replayGate;
+        if (replayGate !== undefined) {
+          yield* Effect.addFinalizer(() => Effect.sync(() => replayGate.releaseAll()));
+        }
+        const driver = yield* CodexReplay.makeReplayDriver(
+          transcript,
+          replayGate === undefined
+            ? {}
+            : {
+                beforeEmitInbound: (entry) =>
+                  Effect.promise((signal) => replayGate.beforeEmit(entry.label, signal)),
+              },
+        );
+        return yield* Layer.build(
+          makeCodexProviderAdapterRegistryReplayLayer({ transcript, driver }),
+        );
+      }),
     );
   },
 };

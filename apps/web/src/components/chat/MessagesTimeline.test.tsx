@@ -90,6 +90,11 @@ vi.mock("@legendapp/list/react", async () => {
             ? props.maintainVisibleContentPosition.size
             : undefined
         }
+        data-maintain-visible-content-position-restore={
+          typeof props.maintainVisibleContentPosition === "object"
+            ? Boolean(props.maintainVisibleContentPosition.shouldRestorePosition)
+            : undefined
+        }
       >
         {props.ListHeaderComponent}
         {props.data.map((item) => (
@@ -196,6 +201,7 @@ function buildProps() {
     onAnchorReady: () => {},
     onAnchorSizeChanged: () => {},
     contentInsetEndAdjustment: 0,
+    liveFollowEnabled: true,
     onIsAtEndChange: () => {},
     onManualNavigation: () => {},
   };
@@ -298,7 +304,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("1 changed file");
   });
 
-  it("uses LegendList isNearEnd when deciding whether the live edge is visible", async () => {
+  it("treats the follow re-arm band above the content bottom as the live edge", async () => {
     const {
       resolveTimelineIsAtEnd,
       resolveTimelineMinimapHasPersistentGutter,
@@ -309,10 +315,37 @@ describe("MessagesTimeline", () => {
       resolveTimelineMinimapTopPercent,
     } = await import("./MessagesTimeline.logic");
 
-    expect(resolveTimelineIsAtEnd({ isNearEnd: true, isAtEnd: false })).toBe(true);
-    expect(resolveTimelineIsAtEnd({ isNearEnd: false, isAtEnd: true })).toBe(false);
     expect(resolveTimelineIsAtEnd({ isAtEnd: true })).toBe(true);
     expect(resolveTimelineIsAtEnd(undefined)).toBeUndefined();
+    // Within the pixel band above the content bottom counts as the end...
+    expect(
+      resolveTimelineIsAtEnd({
+        isAtEnd: false,
+        contentLength: 2000,
+        scroll: 1170,
+        scrollLength: 800,
+      }),
+    ).toBe(true);
+    // ...but half a viewport up (LegendList's isNearEnd territory) does not.
+    expect(
+      resolveTimelineIsAtEnd({
+        isAtEnd: false,
+        contentLength: 2000,
+        scroll: 900,
+        scrollLength: 800,
+      }),
+    ).toBe(false);
+    // The composer inset is part of contentLength and must not count as
+    // distance-to-end.
+    expect(
+      resolveTimelineIsAtEnd(
+        { isAtEnd: false, contentLength: 2100, scroll: 1170, scrollLength: 800 },
+        100,
+      ),
+    ).toBe(true);
+    // Geometry missing (older state shape): fall back to the nearEnd/strict flags.
+    expect(resolveTimelineIsAtEnd({ isNearEnd: true, isAtEnd: false })).toBe(true);
+    expect(resolveTimelineIsAtEnd({ isAtEnd: false })).toBe(false);
 
     expect(resolveTimelineMinimapHeightStyle(5)).toBe("min(32px, calc(100vh - 18rem))");
     expect(resolveTimelineMinimapTopPercent(2, 5)).toBe(50);
@@ -401,7 +434,8 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
     expect(markup).toContain('data-maintain-visible-content-position="object"');
     expect(markup).toContain('data-maintain-visible-content-position-data="true"');
-    expect(markup).toContain('data-maintain-visible-content-position-size="false"');
+    expect(markup).toContain('data-maintain-visible-content-position-size="true"');
+    expect(markup).toContain('data-maintain-visible-content-position-restore="true"');
     expect(onAnchorReady).toHaveBeenCalledOnce();
     expect(onAnchorReady).toHaveBeenCalledWith(secondEntry.message.id, 1);
     expect(onAnchorSizeChanged).toHaveBeenCalledWith(secondEntry.message.id, 240);
@@ -416,10 +450,13 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Show full message");
-    // LegendList's internal maintainScrollAtEnd stays off: it races post-mount
-    // measurement and snaps the view to stale content ends. End-following is
-    // owned by ChatView's live-follow, which respects user scroll gestures.
-    expect(markup).not.toContain('data-maintain-scroll-at-end="enabled"');
+    // LegendList owns ordinary end-follow (#5449): with live follow on and no
+    // anchored end space, its maintainScrollAtEnd is enabled.
+    expect(markup).toContain('data-maintain-scroll-at-end="enabled"');
+    expect(markup).toContain('data-maintain-scroll-at-end-animated="false"');
+    expect(markup).toContain('data-maintain-scroll-at-end-data-change="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-item-layout="true"');
+    expect(markup).toContain('data-maintain-scroll-at-end-layout="true"');
     expect(markup).toContain('data-user-message-collapsed="true"');
     expect(markup).toContain('data-user-message-fade="true"');
     expect(markup).toContain('data-user-message-footer="true"');
@@ -493,7 +530,55 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Steered the active turn");
-    expect(markup).toContain(">steer<");
+    expect(markup).toContain("lucide-redo-2");
+    expect(markup).toContain('data-user-message-intent="steer"');
+    expect(markup).toContain("items-center justify-end gap-1");
+    expect(markup).toContain("gap-1 text-xs leading-none text-muted-foreground");
+    expect(markup.indexOf("Steer")).toBeLessThan(markup.indexOf("Adjust the current turn"));
+  });
+
+  it("does not add redundant space below a collapsed turn divider", () => {
+    const runId = RunId.make("run-collapsed-spacing");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          buildUserTimelineEntry("Investigate spacing"),
+          {
+            id: "assistant-commentary-spacing",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.make("assistant-commentary-spacing"),
+              role: "assistant",
+              text: "Checking the layout.",
+              runId,
+              createdAt: "2026-03-17T19:12:30.000Z",
+              updatedAt: "2026-03-17T19:12:31.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-final-spacing",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.make("assistant-final-spacing"),
+              role: "assistant",
+              text: "Spacing fixed.",
+              runId,
+              createdAt: "2026-03-17T19:12:32.000Z",
+              updatedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('class="pb-0" data-timeline-row-id="turn-fold:');
+    expect(markup).toContain('data-timeline-row-kind="turn-fold"');
+    expect(markup).not.toContain("border-b border-border/60");
   });
 
   it("shows a collapsed disclosure for superseded attempt output", async () => {
@@ -710,7 +795,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Work Log");
   });
 
-  it("renders V2 interruption lifecycle entries as standalone rows", async () => {
+  it("does not render the transient V2 interruption request", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -749,9 +834,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain('data-v2-item-type="run_interrupt_request"');
-    expect(markup).toContain("Interrupt requested");
-    expect(markup).toContain("Waiting for the provider to stop.");
+    expect(markup).not.toContain('data-v2-item-type="run_interrupt_request"');
+    expect(markup).not.toContain("Interrupt requested");
+    expect(markup).not.toContain("Waiting for the provider to stop.");
     expect(markup).not.toContain("Structured details");
   });
 
@@ -841,6 +926,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("GPT 5.6 Sol");
     expect(markup).toContain("Claude Fable 5");
     expect(markup).not.toContain("Full conversation context");
+    expect(markup).not.toContain("·");
 
     // Items persisted before models were stamped recover them from the
     // projection runs: the handoff's run is the target, the newest earlier
@@ -1307,6 +1393,8 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain('data-v2-item-type="error"');
+    expect(markup).toContain('data-v2-event-disclosure="true"');
+    expect(markup).toContain("<summary");
     expect(markup).toContain("Provider error");
     expect(markup).toContain("Invalid reasoning effort.");
   });

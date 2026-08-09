@@ -16,6 +16,15 @@ const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 
+describe("ClientSettings composer context strip", () => {
+  it("defaults to draft-only and accepts a persistent strip preference", () => {
+    expect(decodeClientSettings({}).persistComposerContextStrip).toBe(false);
+    expect(
+      decodeClientSettingsPatch({ persistComposerContextStrip: true }).persistComposerContextStrip,
+    ).toBe(true);
+  });
+});
+
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);
@@ -112,6 +121,14 @@ describe("ClientSettings sidebar v2", () => {
 });
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
+  it("defaults text generation to Luna at low reasoning effort", () => {
+    expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.6-luna",
+      options: [{ id: "reasoningEffort", value: "low" }],
+    });
+  });
+
   it("defaults to an empty record so legacy configs without the key still decode", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
   });

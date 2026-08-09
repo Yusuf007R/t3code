@@ -16,8 +16,12 @@ import { resolveServerBackedAppStageLabel } from "../branding.logic";
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
 // Visible sidebar rows are prewarmed into the thread-detail cache so opening a
-// nearby thread usually reuses an already-hot subscription.
-export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
+// nearby thread usually reuses an already-hot subscription. Each prewarmed
+// thread holds a live, fully hydrated detail subscription (all messages and
+// activities, growing as agents work) for as long as the row stays visible,
+// so this limit is a direct renderer-heap and server-load multiplier — keep
+// it small; cold opens still render instantly from the cached snapshot.
+export const SIDEBAR_THREAD_PREWARM_LIMIT = 3;
 
 type SidebarProject = {
   id: string;
@@ -148,6 +152,7 @@ export interface ThreadStatusPill {
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
+    | "Waiting"
     | "Plan Ready";
   colorClass: string;
   dotClass: string;
@@ -159,6 +164,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Awaiting Input": 4,
   Working: 3,
   Connecting: 3,
+  Waiting: 2.5,
   "Plan Ready": 2,
   Completed: 1,
 };
@@ -173,6 +179,7 @@ type ThreadStatusInput = Pick<
   | "runtime"
 > & {
   lastVisitedAt?: string | null | undefined;
+  pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
 };
 
 export interface ThreadJumpHintVisibilityController {
@@ -460,13 +467,16 @@ export function resolveThreadRowClassName(input: {
 }
 
 // ── Sidebar v2 status model ─────────────────────────────────────────
-// Five visual states, three colors: color is reserved for "act now"
+// Six visual states, three colors: color is reserved for "act now"
 // (approval), "in motion" (working), and "broken" (failed). Ready is the
 // unlabeled resting state — the agent stopped and is waiting on the user,
-// whether it finished, asked a question, or proposed a plan.
+// whether it finished, asked a question, or proposed a plan. Waiting
+// (runtime status "idle") is the agent stopped with background tasks still
+// open: not the user's turn yet, so it renders grey like working, not as a
+// false Done.
 // Unread completion is tracked separately: it describes whether a ready
 // thread needs attention, not what the thread is currently doing.
-export type SidebarV2Status = "approval" | "input" | "working" | "failed" | "ready";
+export type SidebarV2Status = "approval" | "input" | "working" | "waiting" | "failed" | "ready";
 
 type SidebarV2StatusInput = Pick<
   SidebarThreadSummary,
@@ -486,10 +496,52 @@ export function resolveSidebarV2Status(thread: SidebarV2StatusInput): SidebarV2S
   ) {
     return "working";
   }
+  if (thread.runtime?.status === "idle") {
+    return "waiting";
+  }
   if (thread.runtime?.status === "failed") {
     return "failed";
   }
   return "ready";
+}
+
+export type SidebarV2TopStatusKind =
+  | "approval"
+  | "done"
+  | "failed"
+  | "input"
+  | "waiting"
+  | "woke"
+  | "working";
+
+export function resolveSidebarV2TopStatus(input: {
+  readonly status: SidebarV2Status;
+  readonly isUnread: boolean;
+  readonly isWoke: boolean;
+}): SidebarV2TopStatusKind | null {
+  if (input.status === "working") {
+    return "working";
+  }
+  if (input.status === "waiting") {
+    return "waiting";
+  }
+  if (input.status === "approval") {
+    return "approval";
+  }
+  if (input.status === "input") {
+    return "input";
+  }
+  if (input.status === "failed") {
+    return "failed";
+  }
+  if (input.isWoke) {
+    return "woke";
+  }
+  return input.isUnread ? "done" : null;
+}
+
+export function shouldShowSidebarV2Duration(status: SidebarV2Status): boolean {
+  return status === "working";
 }
 
 /** NaN-safe Date.parse for sort comparators: a malformed timestamp must not
@@ -537,6 +589,20 @@ export function sortThreadsForSidebarV2<
       parseTimestampMs(right.createdAt) - parseTimestampMs(left.createdAt) ||
       left.id.localeCompare(right.id),
   );
+}
+
+/**
+ * Search the already-ordered sidebar thread collection by title only.
+ * Keeping the input order means lifecycle ordering (active, snoozed, settled)
+ * remains stable while the user narrows the list.
+ */
+export function searchSidebarThreadsByTitle<T extends { readonly title: string }>(
+  threads: readonly T[],
+  query: string,
+): T[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.length === 0) return [];
+  return threads.filter((thread) => thread.title.toLowerCase().includes(normalizedQuery));
 }
 
 type SettledTimestampInput = Pick<
@@ -648,6 +714,15 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: true,
+    };
+  }
+
+  if ((thread.pendingBackgroundTasks?.length ?? 0) > 0) {
+    return {
+      label: "Waiting",
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
+      pulse: false,
     };
   }
 

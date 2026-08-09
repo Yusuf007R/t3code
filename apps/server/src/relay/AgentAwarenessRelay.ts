@@ -44,6 +44,7 @@ import { getOrCreateEnvironmentKeyPairFromSecretStore } from "../cloud/environme
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import { forkParked } from "../serverActivation.ts";
 
 export class AgentAwarenessRelay extends Context.Service<
   AgentAwarenessRelay,
@@ -192,6 +193,7 @@ export function describeThreadShellForAwareness(
   return {
     found: true,
     status: shell.status,
+    activityRunStatus: shell.activityRunStatus ?? null,
     activeRunId: shell.activeRunId ?? null,
     latestRunId: shell.latestRunId ?? null,
     pendingRuntimeRequestKind: shell.pendingRuntimeRequest?.kind ?? null,
@@ -579,12 +581,12 @@ export const make = Effect.gen(function* () {
           });
           break;
       }
-      yield* Effect.forkScoped(
+      yield* forkParked(
         Effect.sleep("1 second").pipe(
           Effect.andThen(publishActiveThreadsOnceWhenConfigured(startupState !== "enabled")),
         ),
       );
-      yield* Effect.forkScoped(
+      yield* forkParked(
         Stream.runForEach(threads.streamDomainEvents, (event) => {
           const threadId = eventThreadId(event);
           if (!shouldPublishAgentAwarenessEvent(event)) {

@@ -167,6 +167,24 @@ export function waitForThreadShell(ref: ScopedThreadRef, timeoutMs = 5_000): Pro
   });
 }
 
+/** Whether the environment's server understands thread.pin/unpin.
+    Same version-skew contract as settlement. */
+export function readEnvironmentSupportsPinning(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadPinning === true
+  );
+}
+
+/** Whether the environment's server understands thread title regeneration.
+    Same version-skew contract as settlement. */
+export function readEnvironmentSupportsTitleRegeneration(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadTitleRegeneration === true
+  );
+}
+
 export function readThreadProjection(ref: ScopedThreadRef): EnvironmentThread | null {
   return appAtomRegistry.get(environmentThreadDetails.threadAtom(ref));
 }

@@ -83,6 +83,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     props.environmentConnection?.phase === "connecting" ||
     props.environmentConnection?.phase === "reconnecting";
   const branchToolbarProps = {
+    showGitControls: props.isGitRepo,
     environmentId: props.environmentId,
     threadId: props.threadId,
     ...(props.draftId ? { draftId: props.draftId } : {}),
@@ -108,8 +109,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const card = (
     <div
       className={cn(
-        "panel-glass overflow-hidden rounded-[20px]",
-        props.mode === "popover" && "panel-glass-elevated",
+        "dropdown-glass isolate contain-paint overflow-hidden rounded-[20px]",
         props.mode === "inline" ? "max-h-full" : "max-h-[calc(100dvh-6.5rem)]",
       )}
       data-thread-details-card

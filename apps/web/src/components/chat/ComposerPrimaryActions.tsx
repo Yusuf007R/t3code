@@ -2,7 +2,7 @@ import { memo, type PointerEventHandler } from "react";
 import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
-import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
+import { StageBackdropArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
@@ -227,7 +227,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     >
       {stageBackdropVariant ? (
         <span className="absolute inset-0 -z-10" aria-hidden="true">
-          <StageBackdropButtonArt variant={stageBackdropVariant} />
+          <StageBackdropArt variant={stageBackdropVariant} />
         </span>
       ) : null}
       {isConnecting || isSendBusy ? (

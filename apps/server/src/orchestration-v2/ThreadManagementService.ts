@@ -80,6 +80,8 @@ export function existingThreadIdsForCommand(
         : [command.sourceThreadId, command.targetThreadId];
     case "delegated_task.request":
     case "delegated_task.wake-policy":
+    case "delegated_task.completion-delivery.acknowledge":
+    case "delegated_task.completion-delivery.dispose":
       return [command.parentThreadId];
     case "thread.created.record":
       return command.parentThreadId === command.targetThreadId
@@ -176,27 +178,26 @@ export class ThreadManagementRunNotFoundError extends Schema.TaggedErrorClass<Th
   }
 }
 
-const ThreadManagementThreadNotSendableReason = Schema.Union([
-  Schema.TaggedStruct("Archived", {}),
-  Schema.TaggedStruct("NoSteerableRun", {
-    mode: Schema.Literals(["steer", "restart"]),
-  }),
-]);
-
-export class ThreadManagementThreadNotSendableError extends Schema.TaggedErrorClass<ThreadManagementThreadNotSendableError>()(
-  "ThreadManagementThreadNotSendableError",
+export class ThreadManagementThreadArchivedError extends Schema.TaggedErrorClass<ThreadManagementThreadArchivedError>()(
+  "ThreadManagementThreadArchivedError",
   {
     threadId: ThreadId,
-    reason: ThreadManagementThreadNotSendableReason,
   },
 ) {
   override get message(): string {
-    switch (this.reason._tag) {
-      case "Archived":
-        return `Thread ${this.threadId} is archived and cannot receive messages.`;
-      case "NoSteerableRun":
-        return `Thread ${this.threadId} has no running turn that can be ${this.reason.mode === "steer" ? "steered" : "restarted"}.`;
-    }
+    return `Thread ${this.threadId} is archived and cannot receive messages.`;
+  }
+}
+
+export class ThreadManagementNoSteerableRunError extends Schema.TaggedErrorClass<ThreadManagementNoSteerableRunError>()(
+  "ThreadManagementNoSteerableRunError",
+  {
+    threadId: ThreadId,
+    mode: Schema.Literals(["steer", "restart"]),
+  },
+) {
+  override get message(): string {
+    return `Thread ${this.threadId} has no running turn that can be ${this.mode === "steer" ? "steered" : "restarted"}.`;
   }
 }
 
@@ -252,7 +253,8 @@ export class ThreadManagementDurableRunProjectionError extends Schema.TaggedErro
 export const ThreadManagementError = Schema.Union([
   ThreadManagementThreadNotFoundError,
   ThreadManagementRunNotFoundError,
-  ThreadManagementThreadNotSendableError,
+  ThreadManagementThreadArchivedError,
+  ThreadManagementNoSteerableRunError,
   ThreadManagementThreadNotInterruptibleError,
   ThreadManagementProjectionLoadError,
   ThreadManagementProjectThreadsListError,
@@ -466,9 +468,8 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const target = yield* getProjectThread(input);
       if (target.thread.archivedAt !== null) {
-        return yield* new ThreadManagementThreadNotSendableError({
+        return yield* new ThreadManagementThreadArchivedError({
           threadId: input.threadId,
-          reason: { _tag: "Archived" },
         });
       }
 
@@ -479,9 +480,9 @@ const make = Effect.gen(function* () {
       >["dispatchMode"];
       if (input.mode === "steer" || input.mode === "restart") {
         if (steerableRun === undefined) {
-          return yield* new ThreadManagementThreadNotSendableError({
+          return yield* new ThreadManagementNoSteerableRunError({
             threadId: input.threadId,
-            reason: { _tag: "NoSteerableRun", mode: input.mode },
+            mode: input.mode,
           });
         }
         dispatchMode = {

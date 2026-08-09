@@ -42,6 +42,7 @@ import { layer as providerTurnControlServiceLayer } from "../ProviderTurnControl
 import { layer as providerTurnStartServiceLayer } from "../ProviderTurnStartService.ts";
 import { layer as runExecutionServiceLayer } from "../RunExecutionService.ts";
 import { layer as runFinalizationServiceLayer } from "../RunFinalizationService.ts";
+import { ThreadTitleRegenerationService } from "../ThreadTitleRegenerationService.ts";
 import {
   layer as runtimePolicyLayer,
   layerWithOverride as runtimePolicyLayerWithOverride,
@@ -56,6 +57,7 @@ import {
   type OrchestratorV2Scenario,
   type OrchestratorV2ScenarioResult,
 } from "./OrchestratorScenario.ts";
+import { makeProviderReplayGate, type ProviderReplayGate } from "./ProviderReplayGate.testkit.ts";
 
 export function makeReplayServerConfig(
   scenario: string,
@@ -155,6 +157,7 @@ export interface OrchestratorV2ProviderReplayHarness<
   ) => Effect.Effect<Transcript, Error>;
   readonly makeProviderAdapterRegistryLayer: (
     transcript: Transcript,
+    options?: { readonly replayGate?: ProviderReplayGate },
   ) => Layer.Layer<ProviderAdapterRegistryV2, Error>;
 }
 
@@ -182,9 +185,19 @@ export function runOrchestratorV2ProviderReplayScenario<
   | SqlError,
   never
 > {
-  const layer = makeOrchestratorV2ProviderReplayLayer(scenario, harness, options);
+  const replayGate = makeProviderReplayGate(
+    scenario.steps?.flatMap((step) =>
+      step.type === "release_replay_gate" || step.type === "release_replay_gate_after_waiting"
+        ? [step.label]
+        : [],
+    ) ?? [],
+  );
+  const layer = makeOrchestratorV2ProviderReplayLayer(scenario, harness, {
+    ...options,
+    replayGate,
+  });
 
-  return runOrchestratorV2Scenario(scenario).pipe(Effect.provide(layer));
+  return runOrchestratorV2Scenario(scenario, { replayGate }).pipe(Effect.provide(layer));
 }
 
 export function makeOrchestratorV2ProviderReplayLayer<
@@ -200,9 +213,13 @@ export function makeOrchestratorV2ProviderReplayLayer<
     >;
     readonly enableAssistantStreaming?: boolean;
     readonly runEffectWorker?: boolean;
+    readonly replayGate?: ProviderReplayGate;
   } = {},
 ): Layer.Layer<OrchestratorV2, Error | MigrationError | PlatformError.PlatformError | SqlError> {
-  const registryLayer = harness.makeProviderAdapterRegistryLayer(scenario.transcript);
+  const registryLayer = harness.makeProviderAdapterRegistryLayer(
+    scenario.transcript,
+    options.replayGate === undefined ? {} : { replayGate: options.replayGate },
+  );
   return makeOrchestratorV2ReplayLayerWithRegistry(scenario, registryLayer, options);
 }
 
@@ -334,6 +351,10 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
   const runFinalizationServiceProvided = runFinalizationServiceLayer.pipe(
     Layer.provide(Layer.merge(checkpointCaptureServiceProvided, storesLayer)),
   );
+  const threadTitleRegenerationTestLayer = Layer.succeed(
+    ThreadTitleRegenerationService,
+    ThreadTitleRegenerationService.of({ execute: () => Effect.void }),
+  );
   const effectExecutorProvided = effectExecutorLayer.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -343,6 +364,7 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         providerTurnControlServiceProvided,
         providerTurnStartServiceProvided,
         runtimeRequestServiceProvided,
+        threadTitleRegenerationTestLayer,
       ),
     ),
   );
@@ -355,7 +377,6 @@ export function makeOrchestratorV2ReplayLayerWithRegistry<Error>(
         checkpointServiceProvided,
         commandPolicyLayer,
         contextHandoffServiceProvided,
-        effectWorkerProvided,
         persistenceLayer,
         registryLayer,
         runtimeLayer,

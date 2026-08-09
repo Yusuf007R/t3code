@@ -3,6 +3,7 @@ import * as Order from "effect/Order";
 import { useNavigation } from "@react-navigation/native";
 import { useEffect, useMemo, useState } from "react";
 
+import { getCompactBrandHeaderOptions } from "../../components/CompactBrandTitle";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { usePendingNewTasks } from "../../state/use-pending-new-tasks";
@@ -35,8 +36,16 @@ export function HomeRouteScreen() {
     void checkForAppUpdateOnLaunch();
   }, []);
 
-  const { archiveThread, confirmDeleteThread, settleThread, unsettleThread } =
-    useThreadListActions();
+  const {
+    archiveThread,
+    confirmDeleteThread,
+    settleThread,
+    snoozeThread,
+    unsnoozeThread,
+    pinThread,
+    unpinThread,
+    unsettleThread,
+  } = useThreadListActions();
   const pendingTasks = usePendingNewTasks();
   const { openPendingTask, confirmDeletePendingTask } = usePendingTaskListActions();
   const environments = useMemo(() => {
@@ -93,7 +102,9 @@ export function HomeRouteScreen() {
   if (layout.usesSplitView) {
     return (
       <>
-        <NativeStackScreenOptions options={{ title: "", headerTitle: "" }} />
+        <NativeStackScreenOptions
+          options={{ title: "", headerTitle: "", unstable_headerLeftItems: () => [] }}
+        />
         <WorkspaceSidebarToolbar
           afterSidebarButton={
             <NativeHeaderToolbar.Button
@@ -115,8 +126,8 @@ export function HomeRouteScreen() {
       onStartNewTask={() => navigation.navigate("NewTaskSheet", { screen: "NewTask" })}
     >
       <>
-        {/* Restore the compact title in case the split branch blanked it. */}
-        <NativeStackScreenOptions options={{ title: "Threads", headerTitle: "Threads" }} />
+        {/* Restore the compact title after the split branch blanks the detail header. */}
+        <NativeStackScreenOptions options={getCompactBrandHeaderOptions()} />
         <HomeHeader
           environments={environments}
           projects={projectFilterOptions}
@@ -143,7 +154,11 @@ export function HomeRouteScreen() {
           onArchiveThread={archiveThread}
           onDeleteThread={confirmDeleteThread}
           onSettleThread={settleThread}
+          onSnoozeThread={snoozeThread}
+          onUnsnoozeThread={unsnoozeThread}
           onUnsettleThread={unsettleThread}
+          onPinThread={pinThread}
+          onUnpinThread={unpinThread}
           onEnvironmentChange={setSelectedEnvironmentId}
           onProjectChange={setSelectedProjectKey}
           onOpenEnvironments={() =>
