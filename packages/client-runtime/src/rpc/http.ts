@@ -1,8 +1,18 @@
 import {
   EnvironmentHttpApi,
+  EnvironmentHttpBadRequestError,
   EnvironmentHttpCommonError,
+  EnvironmentHttpConflictError,
+  EnvironmentHttpForbiddenError,
+  EnvironmentHttpInternalServerError,
+  EnvironmentHttpUnauthorizedError,
   type EnvironmentAuthInvalidError,
   type EnvironmentInternalError,
+  type EnvironmentHttpBadRequestError as EnvironmentHttpBadRequestErrorType,
+  type EnvironmentHttpConflictError as EnvironmentHttpConflictErrorType,
+  type EnvironmentHttpForbiddenError as EnvironmentHttpForbiddenErrorType,
+  type EnvironmentHttpInternalServerError as EnvironmentHttpInternalServerErrorType,
+  type EnvironmentHttpUnauthorizedError as EnvironmentHttpUnauthorizedErrorType,
   type EnvironmentOperationForbiddenError,
   type EnvironmentRequestInvalidError,
   type EnvironmentResourceNotFoundError,
@@ -19,6 +29,15 @@ import { FetchHttpClient, HttpClient, HttpClientError } from "effect/unstable/ht
 import * as HttpApiClient from "effect/unstable/httpapi/HttpApiClient";
 
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
+const isEnvironmentHttpEndpointError = Schema.is(
+  Schema.Union([
+    EnvironmentHttpBadRequestError,
+    EnvironmentHttpUnauthorizedError,
+    EnvironmentHttpForbiddenError,
+    EnvironmentHttpConflictError,
+    EnvironmentHttpInternalServerError,
+  ]),
+);
 
 export class RemoteEnvironmentAuthFetchError extends Data.TaggedError(
   "RemoteEnvironmentAuthFetchError",
@@ -73,6 +92,11 @@ export type RemoteEnvironmentRequestError =
   | EnvironmentOperationForbiddenError
   | EnvironmentResourceNotFoundError
   | EnvironmentInternalError
+  | EnvironmentHttpBadRequestErrorType
+  | EnvironmentHttpUnauthorizedErrorType
+  | EnvironmentHttpForbiddenErrorType
+  | EnvironmentHttpConflictErrorType
+  | EnvironmentHttpInternalServerErrorType
   | RemoteEnvironmentAuthFetchError
   | RemoteEnvironmentAuthInvalidJsonError
   | RemoteEnvironmentAuthUndeclaredStatusError
@@ -112,7 +136,7 @@ const failRemoteRequest = (
   if (cause instanceof RemoteEnvironmentAuthTimeoutError) {
     return Effect.fail(cause);
   }
-  if (isEnvironmentHttpCommonError(cause)) {
+  if (isEnvironmentHttpCommonError(cause) || isEnvironmentHttpEndpointError(cause)) {
     return Effect.fail(cause);
   }
   if (Schema.isSchemaError(cause)) {

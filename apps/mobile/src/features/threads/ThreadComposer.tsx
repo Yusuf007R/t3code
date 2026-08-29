@@ -80,6 +80,8 @@ import {
 } from "../voice-input/ComposerDictationControl";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
+import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 import {
   type ExistingThreadSettingsRouteSession,
   useExistingThreadSettingsRoutePresentation,
@@ -356,7 +358,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         ? undefined
         : props.onUpdateInteractionMode,
   });
-  const voiceInput = useVoiceInputController({
+  const localVoiceInput = useVoiceInputController({
     ownerKey: composerOwnerKey,
     draftMessage: props.draftMessage,
     selection: composerMenu.selection,
@@ -364,8 +366,8 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onChangeSelection: composerMenu.onSelectionChange,
   });
   const voicePresentation = resolveVoiceComposerPresentation(
-    voiceInput.state,
-    voiceInput.elapsedSeconds,
+    localVoiceInput.state,
+    localVoiceInput.elapsedSeconds,
   );
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
   // An open draft stays visible; only a collapsed composer becomes a voice strip.
@@ -382,7 +384,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   });
   const canSend =
     hasContent &&
-    !voiceInput.blocksSubmission &&
+    !localVoiceInput.blocksSubmission &&
     attachmentBlockReason === null &&
     !modelUnavailable;
 
@@ -419,6 +421,43 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     [isFocused],
   );
 
+  const handleServerVoiceTranscribed = useCallback(
+    (transcription: string) => {
+      const result = insertMobileVoiceTranscription({
+        value: props.draftMessage,
+        selection: composerMenu.selection,
+        transcription,
+      });
+      composerMenu.onSelectionChange(result.selection);
+      props.onChangeDraftMessage(result.text);
+      requestAnimationFrame(() => inputRef.current?.setSelection(result.selection));
+    },
+    [
+      composerMenu.onSelectionChange,
+      composerMenu.selection,
+      inputRef,
+      props.draftMessage,
+      props.onChangeDraftMessage,
+    ],
+  );
+  const serverVoiceInputVisible = selectedProviderStatus?.driver === "codex";
+  const hasCodexOauth =
+    serverVoiceInputVisible &&
+    selectedProviderStatus?.auth.type === "chatgpt" &&
+    selectedProviderStatus.auth.status === "authenticated";
+  const serverVoiceInput = (variant: "control-pill" | "toolbar") => (
+    <ComposerVoiceInput
+      connected={props.connectionState === "connected"}
+      disabled={false}
+      environmentId={props.environmentId}
+      hasCodexOauth={hasCodexOauth}
+      providerInstanceId={props.selectedThread.modelSelection.instanceId}
+      variant={variant}
+      visible={serverVoiceInputVisible}
+      onTranscribed={handleServerVoiceTranscribed}
+    />
+  );
+
   const onEditorFocusChange = props.onEditorFocusChange;
   const handleFocus = useCallback(() => {
     setIsFocused(true);
@@ -436,7 +475,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const { onSendMessage } = props;
 
   const handleSend = useCallback(async () => {
-    if (voiceInput.blocksSubmission) return;
+    if (localVoiceInput.blocksSubmission) return;
     const threadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
     if (inFlightThreadIdsRef.current.has(threadKey)) return;
     inFlightThreadIdsRef.current.add(threadKey);
@@ -463,7 +502,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     props.environmentLabel,
     props.selectedThread.id,
     props.selectedThread.title,
-    voiceInput.blocksSubmission,
+    localVoiceInput.blocksSubmission,
   ]);
 
   // ── Model menu ───────────────────────────────────────────
@@ -579,7 +618,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         className="relative w-full self-center"
         style={{ maxWidth: props.contentMaxWidth }}
       >
-        {!voiceInput.isBusy && composerMenu.trigger && composerMenu.items.length > 0 ? (
+        {!localVoiceInput.isBusy && composerMenu.trigger && composerMenu.items.length > 0 ? (
           <View className="absolute inset-x-0 bottom-full z-10 mb-2">
             <ComposerCommandPopover
               items={composerMenu.items}
@@ -645,9 +684,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 <ComposerAttachmentStrip
                   environmentId={props.environmentId}
                   attachments={props.draftAttachments}
-                  onRemove={voiceInput.isBusy ? () => undefined : props.onRemoveDraftImage}
-                  onPressPreview={voiceInput.isBusy ? undefined : onPressPreview}
-                  onPressVideo={voiceInput.isBusy ? undefined : onPressVideo}
+                  onRemove={localVoiceInput.isBusy ? () => undefined : props.onRemoveDraftImage}
+                  onPressPreview={localVoiceInput.isBusy ? undefined : onPressPreview}
+                  onPressVideo={localVoiceInput.isBusy ? undefined : onPressVideo}
                 />
               </Animated.View>
             ) : null}
@@ -659,7 +698,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 ref={inputRef}
                 multiline
                 value={props.draftMessage}
-                readOnly={voiceInput.freezesEditor}
+                readOnly={localVoiceInput.freezesEditor}
                 skills={composerMenu.skills}
                 selection={composerMenu.selection}
                 onChangeText={props.onChangeDraftMessage}
@@ -716,12 +755,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             ) : null}
             {!isExpanded ? (
               <View className="flex-row items-center">
-                <ComposerDictationStartAction
-                  state={voiceInput.state}
-                  isAvailable={voiceInput.isAvailable}
-                  onStart={voiceInput.start}
-                  onCancel={voiceInput.cancel}
-                />
+                {Platform.OS === "android" ? (
+                  serverVoiceInput("control-pill")
+                ) : (
+                  <ComposerDictationStartAction
+                    state={localVoiceInput.state}
+                    isAvailable={localVoiceInput.isAvailable}
+                    onStart={localVoiceInput.start}
+                    onCancel={localVoiceInput.cancel}
+                  />
+                )}
                 {showStopAction ? (
                   <ComposerActionButton
                     accessibilityLabel="Stop agent"
@@ -771,15 +814,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               >
                 <ComposerDictationCancelAction
                   presentation={voicePresentation}
-                  onCancel={voiceInput.cancel}
+                  onCancel={localVoiceInput.cancel}
                 />
                 {isVoiceInputPresented ? (
                   <ComposerDictationStatus
-                    audioLevels={voiceInput.audioLevels}
-                    elapsedSeconds={voiceInput.elapsedSeconds}
-                    phase={voiceInput.state.phase}
+                    audioLevels={localVoiceInput.audioLevels}
+                    elapsedSeconds={localVoiceInput.elapsedSeconds}
+                    phase={localVoiceInput.state.phase}
                     presentation={voicePresentation}
-                    onDismissError={voiceInput.cancel}
+                    onDismissError={localVoiceInput.cancel}
                   />
                 ) : (
                   <View className="min-w-0 flex-1 flex-row items-center justify-between">
@@ -805,14 +848,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   </View>
                 )}
                 <View className="shrink-0 flex-row items-center">
-                  <ComposerDictationPrimaryAction
-                    state={voiceInput.state}
-                    presentation={voicePresentation}
-                    isAvailable={voiceInput.isAvailable}
-                    onStart={voiceInput.start}
-                    onConfirm={voiceInput.stop}
-                    onCancel={voiceInput.cancel}
-                  />
+                  {Platform.OS === "android" ? (
+                    serverVoiceInput("toolbar")
+                  ) : (
+                    <ComposerDictationPrimaryAction
+                      state={localVoiceInput.state}
+                      presentation={voicePresentation}
+                      isAvailable={localVoiceInput.isAvailable}
+                      onStart={localVoiceInput.start}
+                      onConfirm={localVoiceInput.stop}
+                      onCancel={localVoiceInput.cancel}
+                    />
+                  )}
                   {showStopAction ? (
                     <ComposerActionButton
                       accessibilityLabel="Stop agent"

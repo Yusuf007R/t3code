@@ -246,6 +246,10 @@
     "./work-log/scroll-anchor": {
       "types": "./src/work-log/scrollAnchor.ts",
       "default": "./src/work-log/scrollAnchor.ts"
+    },
+    "./state/voice": {
+      "types": "./src/state/voice.ts",
+      "default": "./src/state/voice.ts"
     }
   },
   "scripts": {

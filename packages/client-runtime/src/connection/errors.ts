@@ -134,6 +134,22 @@ export function mapRemoteEnvironmentError(
         detail: "The environment rejected the authentication request.",
         traceId: error.traceId,
       });
+    case "EnvironmentHttpBadRequestError":
+    case "EnvironmentHttpConflictError":
+      return new ConnectionBlockedError({
+        reason: "configuration",
+        detail: error.message,
+      });
+    case "EnvironmentHttpUnauthorizedError":
+      return new ConnectionBlockedError({
+        reason: "authentication",
+        detail: error.message,
+      });
+    case "EnvironmentHttpForbiddenError":
+      return new ConnectionBlockedError({
+        reason: "permission",
+        detail: error.message,
+      });
     case "EnvironmentResourceNotFoundError":
       // Not expected during connection authorization, but the shared request
       // error type now includes it (used by resource fetches like the thread
@@ -158,6 +174,11 @@ export function mapRemoteEnvironmentError(
         reason: "remote-unavailable",
         detail: "The environment could not authorize the connection.",
         traceId: error.traceId,
+      });
+    case "EnvironmentHttpInternalServerError":
+      return new ConnectionTransientError({
+        reason: "remote-unavailable",
+        detail: error.message,
       });
     case "RemoteEnvironmentAuthInvalidJsonError":
     case "RemoteEnvironmentAuthUndeclaredStatusError":

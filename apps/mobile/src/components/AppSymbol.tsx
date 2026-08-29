@@ -59,6 +59,7 @@ import IconLayoutSidebarRight from "@tabler/icons-react-native/IconLayoutSidebar
 import IconLetterSpacing from "@tabler/icons-react-native/IconLetterSpacing";
 import IconLink from "@tabler/icons-react-native/IconLink";
 import IconMessage from "@tabler/icons-react-native/IconMessage";
+import IconMicrophone from "@tabler/icons-react-native/IconMicrophone";
 import IconMinus from "@tabler/icons-react-native/IconMinus";
 import IconMoon from "@tabler/icons-react-native/IconMoon";
 import IconNetwork from "@tabler/icons-react-native/IconNetwork";
@@ -142,6 +143,7 @@ const ANDROID_ICON_BY_SF_SYMBOL: Partial<Record<SFSymbol, Icon>> = {
   macmini: IconServer,
   macstudio: IconDeviceDesktop,
   magnifyingglass: IconSearch,
+  mic: IconMicrophone,
   paintbrush: IconPalette,
   "person.crop.circle": IconUserCircle,
   photo: IconPhoto,

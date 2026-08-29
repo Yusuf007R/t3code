@@ -106,6 +106,8 @@ import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { selectIncomingShareAttachmentsForServer } from "../sharing/incoming-share-model";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { serverEnvironment } from "../../state/server";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
+import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 
 function NewTaskWorkspaceIcon(props: {
   readonly workspaceMode: "local" | "worktree";
@@ -324,7 +326,7 @@ export function NewTaskDraftScreen(props: {
     onChangeDraftMessage: flow.setPrompt,
     onUpdateInteractionMode: flow.planModeEnabled ? flow.setInteractionMode : undefined,
   });
-  const voiceInput = useVoiceInputController({
+  const localVoiceInput = useVoiceInputController({
     ownerKey: flow.draftKey,
     draftMessage: flow.prompt,
     selection: composerMenu.selection,
@@ -333,10 +335,23 @@ export function NewTaskDraftScreen(props: {
     onChangeSelection: composerMenu.onSelectionChange,
   });
   const voicePresentation = resolveVoiceComposerPresentation(
-    voiceInput.state,
-    voiceInput.elapsedSeconds,
+    localVoiceInput.state,
+    localVoiceInput.elapsedSeconds,
   );
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
+  const handleServerVoiceTranscribed = useCallback(
+    (transcription: string) => {
+      const result = insertMobileVoiceTranscription({
+        value: flow.prompt,
+        selection: composerMenu.selection,
+        transcription,
+      });
+      composerMenu.onSelectionChange(result.selection);
+      flow.setPrompt(result.text);
+      requestAnimationFrame(() => promptInputRef.current?.setSelection(result.selection));
+    },
+    [composerMenu.onSelectionChange, composerMenu.selection, flow.prompt, flow.setPrompt],
+  );
   const preventRemove =
     (isIncomingShareTransferPending && !isProjectPickerReturnActive) ||
     isCancellingShareImport ||
@@ -791,7 +806,7 @@ export function NewTaskDraftScreen(props: {
   const showBranchLoading = flow.branchesLoading && flow.availableBranches.length === 0;
 
   async function handlePickMedia(): Promise<void> {
-    if (isComposerInteractionLocked || voiceInput.isBusy) {
+    if (isComposerInteractionLocked || localVoiceInput.isBusy) {
       return;
     }
     const capabilities = selectedEnvironmentServerConfig?.environment.capabilities;
@@ -816,7 +831,7 @@ export function NewTaskDraftScreen(props: {
   }
 
   async function handlePickFiles(): Promise<void> {
-    if (isComposerInteractionLocked || voiceInput.isBusy) {
+    if (isComposerInteractionLocked || localVoiceInput.isBusy) {
       return;
     }
     const maxBytes =
@@ -861,7 +876,7 @@ export function NewTaskDraftScreen(props: {
   );
 
   async function handleStart(): Promise<void> {
-    if (voiceInput.blocksSubmission) return;
+    if (localVoiceInput.blocksSubmission) return;
     const selectedProject = flow.selectedProject;
     const draftKey = flow.draftKey;
     if (!selectedProject || !draftKey) {
@@ -1066,8 +1081,30 @@ export function NewTaskDraftScreen(props: {
     isIncomingShareReady &&
     !isImportingShare &&
     !flow.submitting &&
-    !voiceInput.blocksSubmission &&
+    !localVoiceInput.blocksSubmission &&
     !(flow.workspaceMode === "worktree" && !flow.selectedBranchName);
+  const serverVoiceInputVisible = flow.selectedProviderStatus?.driver === "codex";
+  const hasCodexOauth =
+    serverVoiceInputVisible &&
+    flow.selectedProviderStatus?.auth.type === "chatgpt" &&
+    flow.selectedProviderStatus.auth.status === "authenticated";
+  const serverVoiceInput = flow.selectedModel ? (
+    <ComposerVoiceInput
+      connected={environmentConnected}
+      disabled={
+        isIncomingShareTransferPending ||
+        !isIncomingShareReady ||
+        isImportingShare ||
+        flow.submitting
+      }
+      environmentId={selectedProject.environmentId}
+      hasCodexOauth={hasCodexOauth}
+      providerInstanceId={flow.selectedModel.instanceId}
+      variant="toolbar"
+      visible={serverVoiceInputVisible}
+      onTranscribed={handleServerVoiceTranscribed}
+    />
+  ) : null;
   const promptEditor = (
     <ComposerEditor
       ref={promptInputRef}
@@ -1075,7 +1112,7 @@ export function NewTaskDraftScreen(props: {
       // Focusing is a user action, so presenting the form sheet has one motion.
       autoFocus={false}
       editable={!isComposerInteractionLocked}
-      readOnly={voiceInput.freezesEditor}
+      readOnly={localVoiceInput.freezesEditor}
       multiline
       scrollEnabled
       value={flow.prompt}
@@ -1154,7 +1191,7 @@ export function NewTaskDraftScreen(props: {
       <ComposerInlineControl
         accessibilityLabel={`Environment: ${selectedEnvironmentLabel}`}
         chevronDirection="right"
-        disabled={isComposerInteractionLocked || voiceInput.isBusy}
+        disabled={isComposerInteractionLocked || localVoiceInput.isBusy}
         iconNode={
           <EnvironmentMachineSymbol
             kind={resolveEnvironmentMachineKind(selectedEnvironmentServerConfig)}
@@ -1210,7 +1247,7 @@ export function NewTaskDraftScreen(props: {
           <ComposerInlineControl
             accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
             accessibilityLabel={workspaceLabel}
-            disabled={isComposerInteractionLocked || voiceInput.isBusy}
+            disabled={isComposerInteractionLocked || localVoiceInput.isBusy}
             iconNode={
               <NewTaskWorkspaceIcon
                 workspaceMode={flow.workspaceMode}
@@ -1241,7 +1278,7 @@ export function NewTaskDraftScreen(props: {
 
   const composerDock = (
     <View className="bg-sheet px-[12px] pt-1" style={{ paddingBottom: controlsBottomPadding }}>
-      {!voiceInput.isBusy && composerMenu.trigger && composerMenu.items.length > 0 ? (
+      {!localVoiceInput.isBusy && composerMenu.trigger && composerMenu.items.length > 0 ? (
         <View className="mb-2">
           <ComposerCommandPopover
             items={composerMenu.items}
@@ -1281,15 +1318,15 @@ export function NewTaskDraftScreen(props: {
               imageBorderRadius={16}
               imageSize={72}
               onRemove={
-                isComposerInteractionLocked || voiceInput.isBusy
+                isComposerInteractionLocked || localVoiceInput.isBusy
                   ? () => undefined
                   : flow.removeAttachment
               }
               onPressPreview={
-                isComposerInteractionLocked || voiceInput.isBusy ? undefined : openFilePreview
+                isComposerInteractionLocked || localVoiceInput.isBusy ? undefined : openFilePreview
               }
               onPressVideo={
-                isComposerInteractionLocked || voiceInput.isBusy ? undefined : openVideoPreview
+                isComposerInteractionLocked || localVoiceInput.isBusy ? undefined : openVideoPreview
               }
             />
           </View>
@@ -1308,15 +1345,15 @@ export function NewTaskDraftScreen(props: {
             >
               <ComposerDictationCancelAction
                 presentation={voicePresentation}
-                onCancel={voiceInput.cancel}
+                onCancel={localVoiceInput.cancel}
               />
               {isVoiceInputPresented ? (
                 <ComposerDictationStatus
-                  audioLevels={voiceInput.audioLevels}
-                  elapsedSeconds={voiceInput.elapsedSeconds}
-                  phase={voiceInput.state.phase}
+                  audioLevels={localVoiceInput.audioLevels}
+                  elapsedSeconds={localVoiceInput.elapsedSeconds}
+                  phase={localVoiceInput.state.phase}
                   presentation={voicePresentation}
-                  onDismissError={voiceInput.cancel}
+                  onDismissError={localVoiceInput.cancel}
                 />
               ) : (
                 <>
@@ -1366,15 +1403,19 @@ export function NewTaskDraftScreen(props: {
                   </ComposerToolbarScroller>
                 </>
               )}
-              <ComposerDictationPrimaryAction
-                state={voiceInput.state}
-                presentation={voicePresentation}
-                isAvailable={voiceInput.isAvailable}
-                disabled={isIncomingShareTransferPending || isImportingShare || flow.submitting}
-                onStart={voiceInput.start}
-                onConfirm={voiceInput.stop}
-                onCancel={voiceInput.cancel}
-              />
+              {isAndroid ? (
+                serverVoiceInput
+              ) : (
+                <ComposerDictationPrimaryAction
+                  state={localVoiceInput.state}
+                  presentation={voicePresentation}
+                  isAvailable={localVoiceInput.isAvailable}
+                  disabled={isIncomingShareTransferPending || isImportingShare || flow.submitting}
+                  onStart={localVoiceInput.start}
+                  onConfirm={localVoiceInput.stop}
+                  onCancel={localVoiceInput.cancel}
+                />
+              )}
               {voicePresentation.showsSend ? (
                 <ComposerActionButton
                   accessibilityLabel={
