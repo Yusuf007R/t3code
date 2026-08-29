@@ -136,6 +136,8 @@ import { appAtomRegistry } from "../../state/atom-registry";
 import { serverEnvironment } from "../../state/server";
 import { fileRoutePathSegments } from "../files/filePath";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
+import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 
 function NewTaskWorkspaceIcon(props: {
   readonly workspaceMode: "local" | "worktree";
@@ -520,6 +522,19 @@ export function NewTaskDraftScreen(props: {
     voiceInput.elapsedSeconds,
   );
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
+  const handleServerVoiceTranscribed = useCallback(
+    (transcription: string) => {
+      const result = insertMobileVoiceTranscription({
+        value: flow.prompt,
+        selection: composerMenu.selection,
+        transcription,
+      });
+      composerMenu.onSelectionChange(result.selection);
+      flow.setPrompt(result.text);
+      requestAnimationFrame(() => promptInputRef.current?.setSelection(result.selection));
+    },
+    [composerMenu.onSelectionChange, composerMenu.selection, flow.prompt, flow.setPrompt],
+  );
   const preventRemove =
     (isIncomingShareTransferPending && !isProjectPickerReturnActive) ||
     isCancellingShareImport ||
@@ -1413,6 +1428,28 @@ export function NewTaskDraftScreen(props: {
     pendingPastedTextAttachmentCount === 0 &&
     !voiceInput.blocksSubmission &&
     !(flow.workspaceMode === "worktree" && !flow.selectedBranchName);
+  const serverVoiceInputVisible = flow.selectedProviderStatus?.driver === "codex";
+  const hasCodexOauth =
+    serverVoiceInputVisible &&
+    flow.selectedProviderStatus?.auth.type === "chatgpt" &&
+    flow.selectedProviderStatus.auth.status === "authenticated";
+  const serverVoiceInput = flow.selectedModel ? (
+    <ComposerVoiceInput
+      connected={environmentConnected}
+      disabled={
+        isIncomingShareTransferPending ||
+        !isIncomingShareReady ||
+        isImportingShare ||
+        flow.submitting
+      }
+      environmentId={selectedProject.environmentId}
+      hasCodexOauth={hasCodexOauth}
+      providerInstanceId={flow.selectedModel.instanceId}
+      variant="toolbar"
+      visible={serverVoiceInputVisible}
+      onTranscribed={handleServerVoiceTranscribed}
+    />
+  ) : null;
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     // A draft attachment lives only in the draft. Without its key the screen would fall through
     // to a remote lookup for bytes the server has never seen.
@@ -1810,15 +1847,19 @@ export function NewTaskDraftScreen(props: {
                   </View>
                 </>
               )}
-              <ComposerDictationPrimaryAction
-                state={voiceInput.state}
-                presentation={voicePresentation}
-                isAvailable={voiceInput.isAvailable}
-                disabled={isIncomingShareTransferPending || isImportingShare || flow.submitting}
-                onStart={voiceInput.start}
-                onConfirm={voiceInput.stop}
-                onCancel={voiceInput.cancel}
-              />
+              {isAndroid ? (
+                serverVoiceInput
+              ) : (
+                <ComposerDictationPrimaryAction
+                  state={voiceInput.state}
+                  presentation={voicePresentation}
+                  isAvailable={voiceInput.isAvailable}
+                  disabled={isIncomingShareTransferPending || isImportingShare || flow.submitting}
+                  onStart={voiceInput.start}
+                  onConfirm={voiceInput.stop}
+                  onCancel={voiceInput.cancel}
+                />
+              )}
               {voicePresentation.showsSend ? (
                 <ComposerActionButton
                   accessibilityLabel={
