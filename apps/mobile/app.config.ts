@@ -239,6 +239,18 @@ const config: ExpoConfig = {
   plugins: [
     "expo-asset",
     [
+      "expo-audio",
+      {
+        microphonePermission:
+          "Allow T3 Code to access your microphone for voice input in the composer.",
+        recordAudioAndroid: true,
+        // Voice input is deliberately foreground-only. Avoid adding the iOS
+        // audio background mode or Android playback foreground service.
+        enableBackgroundRecording: false,
+        enableBackgroundPlayback: false,
+      },
+    ],
+    [
       "expo-font",
       {
         ios: {

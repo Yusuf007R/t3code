@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import type * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 import * as HttpApi from "effect/unstable/httpapi/HttpApi";
 import * as HttpApiEndpoint from "effect/unstable/httpapi/HttpApiEndpoint";
 import * as HttpApiGroup from "effect/unstable/httpapi/HttpApiGroup";
@@ -31,6 +32,7 @@ import {
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   OrchestrationV2ShellSnapshot,
   OrchestrationV2ThreadBoundedSnapshot,
@@ -641,10 +643,36 @@ export class EnvironmentConnectHttpApi extends HttpApiGroup.make("connect")
     }),
   ) {}
 
+export const VOICE_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
+export const VOICE_AUDIO_MAX_ENCODED_CHARACTERS = 4 * Math.ceil(VOICE_AUDIO_MAX_BYTES / 3);
+
+export const VoiceAudioPayload = Schema.String.check(
+  Schema.isMaxLength(VOICE_AUDIO_MAX_ENCODED_CHARACTERS),
+).pipe(Schema.decodeTo(Schema.Uint8Array, SchemaTransformation.uint8ArrayFromBase64String));
+
+export class EnvironmentVoiceHttpApi extends HttpApiGroup.make("voice").add(
+  HttpApiEndpoint.post("transcribe", "/api/voice/transcribe", {
+    headers: OptionalBearerHeaders,
+    payload: Schema.Struct({
+      providerInstanceId: ProviderInstanceId,
+      audio: VoiceAudioPayload,
+      mimeType: TrimmedNonEmptyString,
+    }),
+    success: Schema.Struct({ text: Schema.String }),
+    error: [
+      EnvironmentHttpBadRequestError,
+      EnvironmentHttpForbiddenError,
+      EnvironmentHttpInternalServerError,
+      EnvironmentScopeRequiredError,
+    ],
+  }).middleware(EnvironmentAuthenticatedAuth),
+) {}
+
 export class EnvironmentHttpApi extends HttpApi.make("environment")
   .add(EnvironmentMetadataHttpApi)
   .add(EnvironmentAuthHttpApi)
   .add(EnvironmentOrchestrationHttpApi)
   .add(EnvironmentPullRequestsHttpApi)
   .add(EnvironmentProjectsHttpApi)
+  .add(EnvironmentVoiceHttpApi)
   .add(EnvironmentConnectHttpApi) {}

@@ -43,6 +43,8 @@ import type { RemoteClientConnectionState } from "../../lib/connection";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { ComposerCommandPopover } from "./ComposerCommandPopover";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
+import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 import {
   type ExistingThreadSettingsRouteSession,
   useExistingThreadSettingsRoutePresentation,
@@ -319,6 +321,42 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     onChangeDraftMessage: props.onChangeDraftMessage,
     onUpdateInteractionMode: props.onUpdateInteractionMode,
   });
+  const handleVoiceTranscribed = useCallback(
+    (transcription: string) => {
+      const result = insertMobileVoiceTranscription({
+        value: props.draftMessage,
+        selection: composerMenu.selection,
+        transcription,
+      });
+      composerMenu.onSelectionChange(result.selection);
+      props.onChangeDraftMessage(result.text);
+      requestAnimationFrame(() => inputRef.current?.setSelection(result.selection));
+    },
+    [
+      composerMenu.onSelectionChange,
+      composerMenu.selection,
+      inputRef,
+      props.draftMessage,
+      props.onChangeDraftMessage,
+    ],
+  );
+  const voiceInputVisible = selectedProviderStatus?.driver === "codex";
+  const hasCodexOauth =
+    voiceInputVisible &&
+    selectedProviderStatus?.auth.type === "chatgpt" &&
+    selectedProviderStatus.auth.status === "authenticated";
+  const voiceInput = (variant: "control-pill" | "toolbar") => (
+    <ComposerVoiceInput
+      connected={props.connectionState === "connected"}
+      disabled={false}
+      environmentId={props.environmentId}
+      hasCodexOauth={hasCodexOauth}
+      providerInstanceId={props.selectedThread.modelSelection.instanceId}
+      variant={variant}
+      visible={voiceInputVisible}
+      onTranscribed={handleVoiceTranscribed}
+    />
+  );
   const { onSendMessage } = props;
 
   const handleSend = useCallback(async () => {
@@ -578,16 +616,19 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           ) : null}
           {!isExpanded ? (
             <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(100)}>
-              {showStopAction ? (
-                <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
-              ) : (
-                <ControlPill
-                  icon="arrow.up"
-                  variant="primary"
-                  disabled={!canSend}
-                  onPress={handleSend}
-                />
-              )}
+              <View className="flex-row gap-1">
+                {voiceInput("control-pill")}
+                {showStopAction ? (
+                  <ControlPill icon="stop.fill" variant="danger" onPress={props.onStopThread} />
+                ) : (
+                  <ControlPill
+                    icon="arrow.up"
+                    variant="primary"
+                    disabled={!canSend}
+                    onPress={handleSend}
+                  />
+                )}
+              </View>
             </Animated.View>
           ) : null}
           {isExpanded ? (
@@ -619,6 +660,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : null}
               </ComposerToolbarScroller>
+              {voiceInput("toolbar")}
               <ComposerToolbarButton
                 accessibilityLabel={sendLabel}
                 icon="arrow.up"

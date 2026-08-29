@@ -67,6 +67,8 @@ import {
   resolveNewTaskWorkspaceLabel,
 } from "./new-task-context-presentation";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
+import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 
 function NewTaskWorkspaceIcon(props: {
   readonly workspaceMode: "local" | "worktree";
@@ -232,6 +234,19 @@ export function NewTaskDraftScreen(props: {
     onChangeDraftMessage: flow.setPrompt,
     onUpdateInteractionMode: flow.planModeEnabled ? flow.setInteractionMode : undefined,
   });
+  const handleVoiceTranscribed = useCallback(
+    (transcription: string) => {
+      const result = insertMobileVoiceTranscription({
+        value: flow.prompt,
+        selection: composerMenu.selection,
+        transcription,
+      });
+      composerMenu.onSelectionChange(result.selection);
+      flow.setPrompt(result.text);
+      requestAnimationFrame(() => promptInputRef.current?.setSelection(result.selection));
+    },
+    [composerMenu.onSelectionChange, composerMenu.selection, flow.prompt, flow.setPrompt],
+  );
   usePreventRemove(
     (isIncomingShareTransferPending && !isProjectPickerReturnActive) || isCancellingShareImport,
     () => undefined,
@@ -837,6 +852,25 @@ export function NewTaskDraftScreen(props: {
     !isImportingShare &&
     !flow.submitting &&
     !(flow.workspaceMode === "worktree" && !flow.selectedBranchName);
+  const voiceInputVisible = flow.selectedProviderStatus?.driver === "codex";
+  const hasCodexOauth =
+    voiceInputVisible &&
+    flow.selectedProviderStatus?.auth.type === "chatgpt" &&
+    flow.selectedProviderStatus.auth.status === "authenticated";
+  const voiceInputDisabled =
+    isIncomingShareTransferPending || !isIncomingShareReady || isImportingShare || flow.submitting;
+  const voiceInput = flow.selectedModel ? (
+    <ComposerVoiceInput
+      connected={environmentConnected}
+      disabled={voiceInputDisabled}
+      environmentId={selectedProject.environmentId}
+      hasCodexOauth={hasCodexOauth}
+      providerInstanceId={flow.selectedModel.instanceId}
+      variant="toolbar"
+      visible={voiceInputVisible}
+      onTranscribed={handleVoiceTranscribed}
+    />
+  ) : null;
   const promptEditor = (
     <ComposerEditor
       ref={promptInputRef}
@@ -1060,6 +1094,7 @@ export function NewTaskDraftScreen(props: {
               />
             ) : null}
           </ComposerToolbarScroller>
+          {voiceInput}
           <ComposerToolbarButton
             accessibilityLabel={
               flow.submitting ? "Starting task" : environmentConnected ? "Start task" : "Queue task"
