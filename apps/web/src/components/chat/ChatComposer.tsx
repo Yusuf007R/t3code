@@ -257,6 +257,7 @@ import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -3814,6 +3815,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       contextIds: collectInlineContextIds(promptRef.current),
     };
   }, [composerCursor, promptRef]);
+
+  const insertVoiceTranscription = useCallback(
+    (transcription: string) => {
+      const snapshot = readComposerSnapshot();
+      const insertionPoint = snapshot.expandedCursor;
+      const needsLeadingSpace =
+        insertionPoint > 0 && !/\s/u.test(snapshot.value[insertionPoint - 1] ?? "");
+      const needsTrailingSpace =
+        insertionPoint < snapshot.value.length && !/\s/u.test(snapshot.value[insertionPoint] ?? "");
+      applyPromptReplacement(
+        insertionPoint,
+        insertionPoint,
+        `${needsLeadingSpace ? " " : ""}${transcription}${needsTrailingSpace ? " " : ""}`,
+      );
+    },
+    [applyPromptReplacement, readComposerSnapshot],
+  );
 
   const resolveActiveComposerTrigger = useCallback((): {
     snapshot: { value: string; cursor: number; expandedCursor: number };
@@ -7408,6 +7426,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </Tooltip>
                     </>
                   ) : null}
+                  <ComposerVoiceInput
+                    key={composerTargetKey(composerDraftTarget)}
+                    providerInstanceId={selectedInstanceId}
+                    hasCodexOauth={
+                      selectedProviderEntry?.driverKind === "codex" &&
+                      selectedProviderStatus?.auth.type === "chatgpt" &&
+                      selectedProviderStatus.auth.status === "authenticated"
+                    }
+                    disabled={
+                      isConnecting ||
+                      isComposerApprovalState ||
+                      pendingUserInputs.length > 0 ||
+                      projectSelectionRequired ||
+                      environmentUnavailable !== null
+                    }
+                    onTranscribed={insertVoiceTranscription}
+                  />
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     activeContextWindow={
