@@ -110,6 +110,8 @@ import {
 } from "../voice-input/ComposerDictationControl";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
+import { ComposerVoiceInput } from "./ComposerVoiceInput";
+import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 import {
   rememberModelOptions,
   withRememberedModelOptions,
@@ -569,6 +571,43 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       setPreviewVideo((current) => current ?? { type: "local", attachment, sourceIdentifier });
     },
     [isFocused],
+  );
+
+  const handleServerVoiceTranscribed = useCallback(
+    (transcription: string) => {
+      const result = insertMobileVoiceTranscription({
+        value: props.draftMessage,
+        selection: composerMenu.selection,
+        transcription,
+      });
+      composerMenu.onSelectionChange(result.selection);
+      props.onChangeDraftMessage(result.text);
+      requestAnimationFrame(() => inputRef.current?.setSelection(result.selection));
+    },
+    [
+      composerMenu.onSelectionChange,
+      composerMenu.selection,
+      inputRef,
+      props.draftMessage,
+      props.onChangeDraftMessage,
+    ],
+  );
+  const serverVoiceInputVisible = selectedProviderStatus?.driver === "codex";
+  const hasCodexOauth =
+    serverVoiceInputVisible &&
+    selectedProviderStatus?.auth.type === "chatgpt" &&
+    selectedProviderStatus.auth.status === "authenticated";
+  const serverVoiceInput = (variant: "control-pill" | "toolbar") => (
+    <ComposerVoiceInput
+      connected={props.connectionState === "connected"}
+      disabled={false}
+      environmentId={props.environmentId}
+      hasCodexOauth={hasCodexOauth}
+      providerInstanceId={props.selectedThread.modelSelection.instanceId}
+      variant={variant}
+      visible={serverVoiceInputVisible}
+      onTranscribed={handleServerVoiceTranscribed}
+    />
   );
 
   const onEditorFocusChange = props.onEditorFocusChange;
@@ -1032,12 +1071,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             ) : null}
             {!isExpanded ? (
               <View className="flex-row items-center">
-                <ComposerDictationStartAction
-                  state={voiceInput.state}
-                  isAvailable={voiceInput.isAvailable}
-                  onStart={voiceInput.start}
-                  onCancel={voiceInput.cancel}
-                />
+                {Platform.OS === "android" ? (
+                  serverVoiceInput("control-pill")
+                ) : (
+                  <ComposerDictationStartAction
+                    state={voiceInput.state}
+                    isAvailable={voiceInput.isAvailable}
+                    onStart={voiceInput.start}
+                    onCancel={voiceInput.cancel}
+                  />
+                )}
                 {showStopAction ? (
                   <ComposerActionButton
                     accessibilityLabel="Stop agent"
@@ -1124,14 +1167,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   </View>
                 )}
                 <View className="shrink-0 flex-row items-center">
-                  <ComposerDictationPrimaryAction
-                    state={voiceInput.state}
-                    presentation={voicePresentation}
-                    isAvailable={voiceInput.isAvailable}
-                    onStart={voiceInput.start}
-                    onConfirm={voiceInput.stop}
-                    onCancel={voiceInput.cancel}
-                  />
+                  {Platform.OS === "android" ? (
+                    serverVoiceInput("toolbar")
+                  ) : (
+                    <ComposerDictationPrimaryAction
+                      state={voiceInput.state}
+                      presentation={voicePresentation}
+                      isAvailable={voiceInput.isAvailable}
+                      onStart={voiceInput.start}
+                      onConfirm={voiceInput.stop}
+                      onCancel={voiceInput.cancel}
+                    />
+                  )}
                   {showStopAction ? (
                     <ComposerActionButton
                       accessibilityLabel="Stop agent"
