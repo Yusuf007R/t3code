@@ -114,6 +114,9 @@ const dmSansFonts = {
   bold: "@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf",
 } as const;
 
+const microphonePermission =
+  "Allow T3 Code to access your microphone for voice input in the composer.";
+
 const widgetsPlugin: NonNullable<ExpoConfig["plugins"]>[number] = [
   "expo-widgets",
   {
@@ -300,8 +303,8 @@ const config: ExpoConfig = {
     [
       "expo-audio",
       {
-        microphonePermission: "Allow T3 Code to use your microphone for voice input.",
-        recordAudioAndroid: false,
+        microphonePermission,
+        recordAudioAndroid: true,
         enableBackgroundPlayback: false,
         enableBackgroundRecording: false,
       },
@@ -315,7 +318,15 @@ const config: ExpoConfig = {
         recordAudioAndroid: false,
       },
     ],
-    ["expo-image-picker", { photosPermission: false, microphonePermission: false }],
+    [
+      "expo-image-picker",
+      {
+        photosPermission: false,
+        // `false` blocks RECORD_AUDIO across the merged Android manifest,
+        // including the permission expo-audio needs for composer voice input.
+        microphonePermission,
+      },
+    ],
     [
       "expo-splash-screen",
       {
