@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import { MicIcon, SquareIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
-import { PrimaryEnvironmentHttpClient } from "../../environments/primary";
+import { PrimaryEnvironmentHttpClient } from "../../environments/primary/httpClient";
 import { runPrimaryHttp } from "../../lib/runtime";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";

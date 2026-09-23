@@ -3,7 +3,7 @@ import {
   EnvironmentHttpApi,
   VOICE_AUDIO_MAX_ENCODED_CHARACTERS,
 } from "@t3tools/contracts";
-import * as FileSystem from "effect/FileSystem";
+import * as ByteSize from "effect/ByteSize";
 import * as Layer from "effect/Layer";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as Effect from "effect/Effect";
@@ -28,7 +28,7 @@ export const voiceHttpApiLayer = HttpApiBuilder.group(EnvironmentHttpApi, "voice
   Layer.provide(
     Layer.succeed(
       HttpServerRequest.MaxBodySize,
-      FileSystem.Size(VOICE_TRANSCRIPTION_MAX_BODY_BYTES),
+      ByteSize.bytes(VOICE_TRANSCRIPTION_MAX_BODY_BYTES),
     ),
   ),
 );
