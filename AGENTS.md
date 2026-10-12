@@ -75,6 +75,20 @@ The most common defect in this repo is a change that works on the path you teste
 - **Connection modes.** Local, remote/relay, and tunnel behave differently. Multi-device and multi-environment cases are real.
 - **Docs.** Check whether the change makes existing guidance inaccurate. Apply the [documentation rules](#documentation) before adding anything.
 
+## Updating this personal fork on Yoru
+
+When the user asks to update or rebuild `personal/custom-fork`, check the host before dependency installation or validation. Yoru also runs other projects, remote editors, and long-lived dev servers.
+
+- Inspect available RAM, CPU load, memory/I/O pressure, and existing heavy processes with `free -h`, `uptime`, `vmstat 1 3`, `/proc/pressure/{cpu,memory,io}`, and a process list. Use `MemAvailable`; full swap alone does not mean the machine is currently under pressure.
+- Budget for the command's peak memory use and leave roughly 3–4 GiB of RAM headroom for the OS and running applications. Recheck between heavy commands and monitor long-running ones. If headroom disappears or sustained memory/I/O stalls develop, stop your own tracked command and report the constraint. Do not stop other tasks' processes to make room.
+- Run dependency installs, typechecks, tests, and builds **one heavy command at a time**. If another chat or worktree is already doing heavy work, defer yours. Parallelize lightweight inspection instead.
+- Run application typechecks sequentially: finish server, then mobile, then web. Never launch all three package commands together; separate invocations bypass the root script's concurrency limit.
+- A command returning a running session is still consuming resources. Wait for its recorded exit before starting the next heavy command, including when orchestrating tool calls or delegating to subagents.
+- Use at most two test workers while other environments are running. TypeScript's native compiler is not constrained by `NODE_OPTIONS=--max-old-space-size`; do not treat that setting as protection against exhausting host RAM.
+- Use a persistent worktree for the update, not `/tmp`, so a forced reboot cannot discard uncommitted work. Preserve these fork-specific instructions when integrating upstream changes.
+
+The focused-validation rules below still apply; an update request does not authorize repo-wide checks.
+
 ## Dev servers
 
 - `vp i` installs. Worktrees get this from the t3.json setup script; if module resolution looks broken, it probably did not run.
