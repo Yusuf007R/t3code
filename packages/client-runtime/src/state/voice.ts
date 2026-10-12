@@ -3,7 +3,6 @@ import type { ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
-import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
 import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
@@ -32,7 +31,7 @@ export const transcribeEnvironmentVoice = Effect.fn(
     signer,
     remoteAuthorization,
     method: "POST",
-    url: (httpBaseUrl) => environmentEndpointUrl(httpBaseUrl, "/api/voice/transcribe"),
+    url: (urls) => urls.transcribe(),
     timeoutMs: input.timeoutMs ?? DEFAULT_VOICE_TRANSCRIPTION_TIMEOUT_MS,
     group: "voice",
     request: ({ client, headers }) =>

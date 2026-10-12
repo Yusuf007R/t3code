@@ -190,7 +190,6 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
             type="button"
             variant={state === "recording" ? "destructive" : "ghost"}
             size="icon-sm"
-            className="rounded-full"
             disabled={
               state === "requesting" ||
               state === "transcribing" ||

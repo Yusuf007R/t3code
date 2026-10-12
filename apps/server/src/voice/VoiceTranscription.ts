@@ -10,11 +10,10 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
-import * as NodeCrypto from "node:crypto";
+import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
-import { deriveProviderInstanceConfigMap } from "../provider/Layers/ProviderInstanceRegistryHydration.ts";
+import { deriveProviderInstanceConfigMap } from "../provider/ProviderInstanceRegistryHydration.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 
 export const CODEX_TRANSCRIBE_URL = "https://chatgpt.com/backend-api/transcribe";
@@ -30,7 +29,8 @@ const CODEX_TRANSCRIPTION_HEADERS = {
   "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not=A?Brand";v="24"',
   "sec-ch-ua-mobile": "?0",
   "sec-ch-ua-platform": '"macOS"',
-  "oai-did": NodeCrypto.randomUUID(),
+  // @effect-diagnostics-next-line cryptoRandomUUID:off -- Keep one device identity per server process, not a new identity per request.
+  "oai-did": globalThis.crypto.randomUUID(),
   "OAI-Language": "en",
   Origin: "https://chatgpt.com",
   Referer: "https://chatgpt.com/",

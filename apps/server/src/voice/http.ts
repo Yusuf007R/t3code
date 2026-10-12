@@ -5,9 +5,9 @@ import {
 } from "@t3tools/contracts";
 import * as ByteSize from "effect/ByteSize";
 import * as Layer from "effect/Layer";
-import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Effect from "effect/Effect";
-import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
+import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import { annotateEnvironmentRequest, requireEnvironmentScope } from "../auth/http.ts";
 import { transcribeVoice } from "./VoiceTranscription.ts";
@@ -15,7 +15,7 @@ import { transcribeVoice } from "./VoiceTranscription.ts";
 // Leave room for the JSON envelope while bounding the base64 audio near its schema limit.
 const VOICE_TRANSCRIPTION_MAX_BODY_BYTES = VOICE_AUDIO_MAX_ENCODED_CHARACTERS + 64 * 1024;
 
-export const voiceHttpApiLayer = HttpApiBuilder.group(EnvironmentHttpApi, "voice", (handlers) =>
+export const layer = HttpApiBuilder.group(EnvironmentHttpApi, "voice", (handlers) =>
   handlers.handle(
     "transcribe",
     Effect.fn("environment.voice.transcribe")(function* (args) {
