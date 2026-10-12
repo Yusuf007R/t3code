@@ -86,6 +86,7 @@ When the user asks to update or rebuild `personal/custom-fork`, check the host b
 - A command returning a running session is still consuming resources. Wait for its recorded exit before starting the next heavy command, including when orchestrating tool calls or delegating to subagents.
 - Use at most two test workers while other environments are running. TypeScript's native compiler is not constrained by `NODE_OPTIONS=--max-old-space-size`; do not treat that setting as protection against exhausting host RAM.
 - Use a persistent worktree for the update, not `/tmp`, so a forced reboot cannot discard uncommitted work. Preserve these fork-specific instructions when integrating upstream changes.
+- Before updating the branch or deploying new code, create a backup branch and back up the active T3 home's userdata outside the checkout. Resolve the home from the running service rather than assuming `~/.t3`; snapshot every database through a read-only SQLite connection with `VACUUM INTO` and verify each snapshot before proceeding. Never delete existing backups unless the user explicitly asks.
 
 The focused-validation rules below still apply; an update request does not authorize repo-wide checks.
 
