@@ -1,10 +1,11 @@
 import type { ProviderInstanceId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import { MicIcon, SquareIcon } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { PrimaryEnvironmentHttpClient } from "../../environments/primary/httpClient";
 import { runPrimaryHttp } from "../../lib/runtime";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
@@ -28,7 +29,7 @@ const errorMessage = (error: unknown): string => {
   return "Voice transcription failed.";
 };
 
-export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
+export function ComposerVoiceInput(props: {
   providerInstanceId: ProviderInstanceId;
   hasCodexOauth: boolean;
   disabled: boolean;
@@ -48,10 +49,12 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
     disabled: props.disabled,
   };
   const availabilityRef = useRef(availability);
-  availabilityRef.current = availability;
+  useLayoutEffect(() => {
+    availabilityRef.current = availability;
+  }, [availability]);
   const unavailableReason = voiceInputUnavailableReason(availability);
 
-  const releaseCapture = useCallback((stopRecorder = false) => {
+  const releaseCapture = useStableCallback((stopRecorder = false) => {
     const recorder = recorderRef.current;
     if (recorder) {
       recorder.ondataavailable = null;
@@ -63,7 +66,7 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     recorderRef.current = null;
-  }, []);
+  });
 
   useEffect(
     () => () => {
@@ -73,12 +76,14 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
     [releaseCapture],
   );
 
-  useEffect(() => {
-    if (unavailableReason === null) return;
+  const resetCapture = useStableCallback(() => {
     operationRef.current += 1;
     releaseCapture(true);
     setState("idle");
-  }, [releaseCapture, unavailableReason]);
+  });
+  useEffect(() => {
+    if (unavailableReason !== null) resetCapture();
+  }, [resetCapture, unavailableReason]);
 
   const transcribe = async (audioBlob: Blob, operation: number) => {
     setState("transcribing");
@@ -113,9 +118,8 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
       if (operation === operationRef.current) {
         toastManager.add({ type: "error", title: errorMessage(error) });
       }
-    } finally {
-      if (operation === operationRef.current) setState("idle");
     }
+    if (operation === operationRef.current) setState("idle");
   };
 
   const stopRecording = () => {
@@ -212,4 +216,4 @@ export const ComposerVoiceInput = memo(function ComposerVoiceInput(props: {
       <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>
   );
-});
+}

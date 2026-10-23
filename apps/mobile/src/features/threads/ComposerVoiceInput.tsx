@@ -9,12 +9,11 @@ import {
   type RecordingOptions,
 } from "expo-audio";
 import { File } from "expo-file-system";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Linking } from "react-native";
 import * as Option from "effect/Option";
 
 import { ComposerToolbarButton } from "../../components/ComposerToolbar";
-import { ControlPill } from "../../components/ControlPill";
 import { runtime } from "../../lib/runtime";
 import { usePreparedConnection } from "../../state/session";
 import {
@@ -91,70 +90,63 @@ export function ComposerVoiceInput(props: {
   const contextKey = `${props.environmentId}:${props.providerInstanceId}`;
   const previousContextKeyRef = useRef(contextKey);
 
-  const availability = useMemo<MobileVoiceInputAvailability>(
-    () => ({
-      connected: props.connected && prepared !== null,
-      disabled: props.disabled,
-      hasCodexOauth: props.hasCodexOauth,
-      visible: props.visible,
-    }),
-    [prepared, props.connected, props.disabled, props.hasCodexOauth, props.visible],
-  );
+  const availability: MobileVoiceInputAvailability = {
+    connected: props.connected && prepared !== null,
+    disabled: props.disabled,
+    hasCodexOauth: props.hasCodexOauth,
+    visible: props.visible,
+  };
   const availabilityRef = useRef(availability);
-  availabilityRef.current = availability;
-  preparedRef.current = prepared;
+  useLayoutEffect(() => {
+    availabilityRef.current = availability;
+    preparedRef.current = prepared;
+  }, [availability, prepared]);
 
-  const setCurrentPhase = useCallback((nextPhase: VoiceInputPhase) => {
+  const setCurrentPhase = (nextPhase: VoiceInputPhase) => {
     phaseRef.current = nextPhase;
     if (mountedRef.current) {
       setPhase(nextPhase);
     }
-  }, []);
+  };
 
   const recorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
   const recorderState = useAudioRecorderState(recorder, 250);
 
-  const operationCanContinue = useCallback(
-    (operation: number) =>
-      canContinueMobileVoiceOperation({
-        operation,
-        currentOperation: operationRef.current,
-        availability: availabilityRef.current,
-      }),
-    [],
-  );
+  const operationCanContinue = (operation: number) =>
+    canContinueMobileVoiceOperation({
+      operation,
+      currentOperation: operationRef.current,
+      availability: availabilityRef.current,
+    });
 
-  const cancelVoiceOperation = useCallback(
-    (options?: { readonly updateUi?: boolean }) => {
-      operationRef.current += 1;
-      abortRef.current?.abort();
-      abortRef.current = null;
-      if (options?.updateUi !== false) {
-        setCurrentPhase("idle");
-      } else {
-        phaseRef.current = "idle";
+  const cancelVoiceOperation = (options?: { readonly updateUi?: boolean }) => {
+    operationRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    if (options?.updateUi !== false) {
+      setCurrentPhase("idle");
+    } else {
+      phaseRef.current = "idle";
+    }
+    const cleanup = async () => {
+      if (recorder.isRecording) {
+        await recorder.stop().catch(() => undefined);
       }
-      const cleanup = async () => {
-        if (recorder.isRecording) {
-          await recorder.stop().catch(() => undefined);
-        }
-        await restorePlaybackAudioMode();
-      };
-      recorderCleanupRef.current = recorderCleanupRef.current.then(cleanup, cleanup);
-    },
-    [recorder, setCurrentPhase],
-  );
+      await restorePlaybackAudioMode();
+    };
+    recorderCleanupRef.current = recorderCleanupRef.current.then(cleanup, cleanup);
+  };
 
-  const stopAndTranscribe = useCallback(async () => {
+  const stopAndTranscribe = async () => {
     if (phaseRef.current !== "recording") {
       return;
     }
 
     const operation = operationRef.current;
     setCurrentPhase("transcribing");
-    let recordingFile: File | null = null;
+    const recording = { file: null as File | null };
 
-    try {
+    const transcribeRecording = async () => {
       if (recorder.isRecording) {
         await recorder.stop();
       }
@@ -168,7 +160,8 @@ export function ComposerVoiceInput(props: {
         throw new Error("The microphone did not produce a recording.");
       }
 
-      recordingFile = new File(recordingUri);
+      const recordingFile = new File(recordingUri);
+      recording.file = recordingFile;
       const size = recordingFile.size;
       if (size === null || size === 0) {
         throw new Error("The microphone did not capture any audio.");
@@ -179,7 +172,7 @@ export function ComposerVoiceInput(props: {
 
       const audio = await recordingFile.bytes();
       recordingFile.delete();
-      recordingFile = null;
+      recording.file = null;
       if (!operationCanContinue(operation)) {
         return;
       }
@@ -204,33 +197,27 @@ export function ComposerVoiceInput(props: {
         return;
       }
       props.onTranscribed(result.text);
+    };
+    try {
+      await transcribeRecording();
     } catch (error) {
       if (operationCanContinue(operation)) {
         Alert.alert("Voice input failed", voiceInputErrorMessage(error));
       }
-    } finally {
-      if (recordingFile?.exists) {
-        try {
-          recordingFile.delete();
-        } catch {
-          // The cache file is best-effort cleanup; transcription state must
-          // still settle if the OS already purged it.
-        }
-      }
-      if (operationRef.current === operation) {
-        abortRef.current = null;
-        setCurrentPhase("idle");
-      }
     }
-  }, [
-    operationCanContinue,
-    props.onTranscribed,
-    props.providerInstanceId,
-    recorder,
-    setCurrentPhase,
-  ]);
+    if (recording.file?.exists) {
+      // The OS may have purged the cache file while transcription was in flight.
+      await Promise.resolve()
+        .then(() => recording.file?.delete())
+        .catch(() => undefined);
+    }
+    if (operationRef.current === operation) {
+      abortRef.current = null;
+      setCurrentPhase("idle");
+    }
+  };
 
-  const startRecording = useCallback(async () => {
+  const startRecording = async () => {
     if (phaseRef.current !== "idle") {
       return;
     }
@@ -243,7 +230,7 @@ export function ComposerVoiceInput(props: {
     operationRef.current = operation;
     setCurrentPhase("requesting-permission");
 
-    try {
+    const capture = async () => {
       const permission = await requestRecordingPermissionsAsync();
       if (!operationCanContinue(operation)) {
         return;
@@ -307,6 +294,9 @@ export function ComposerVoiceInput(props: {
       }
       recorder.record({ forDuration: MAX_RECORDING_DURATION_SECONDS });
       setCurrentPhase("recording");
+    };
+    try {
+      await capture();
     } catch (error) {
       await restorePlaybackAudioMode();
       if (operationCanContinue(operation)) {
@@ -314,9 +304,9 @@ export function ComposerVoiceInput(props: {
         Alert.alert("Could not start voice input", voiceInputErrorMessage(error));
       }
     }
-  }, [cancelVoiceOperation, operationCanContinue, recorder, setCurrentPhase]);
+  };
 
-  const handlePress = useCallback(() => {
+  const handlePress = () => {
     if (phaseRef.current === "recording") {
       void stopAndTranscribe();
       return;
@@ -324,7 +314,7 @@ export function ComposerVoiceInput(props: {
     if (phaseRef.current === "idle") {
       void startRecording();
     }
-  }, [startRecording, stopAndTranscribe]);
+  };
 
   useEffect(() => {
     if (previousContextKeyRef.current === contextKey) {
@@ -403,13 +393,14 @@ export function ComposerVoiceInput(props: {
       variant={recording ? "danger" : "default"}
     />
   ) : (
-    <ControlPill
+    <ComposerToolbarButton
       accessibilityLabel={accessibilityLabel}
       disabled={busy || unavailableReason !== null}
       icon={recording ? "stop.fill" : "mic"}
       iconNode={iconNode}
       onPress={handlePress}
-      variant={recording ? "danger" : "circle"}
+      showChevron={false}
+      variant={recording ? "danger" : "default"}
     />
   );
 }
