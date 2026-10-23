@@ -83,6 +83,46 @@ const makeDiskSessionStoreLayer = Effect.fn("makeDiskSessionStoreLayer")(functio
 });
 
 it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
+  it.effect.each(["browser-session-cookie", "bearer-access-token"] as const)(
+    "keeps a default %s session valid for 365 days",
+    (method) =>
+      Effect.gen(function* () {
+        const sessions = yield* SessionStore.SessionStore;
+        const issued = yield* sessions.issue({ method });
+        const [recorded] = yield* sessions.listActive();
+
+        expect(recorded!.expiresAt.epochMilliseconds - recorded!.issuedAt.epochMilliseconds).toBe(
+          Duration.toMillis(Duration.days(365)),
+        );
+        yield* TestClock.adjust(Duration.days(364));
+        expect((yield* sessions.verify(issued.token)).sessionId).toBe(issued.sessionId);
+
+        yield* TestClock.adjust(Duration.days(1));
+        const error = yield* Effect.flip(sessions.verify(issued.token));
+        expect(error._tag).toBe("SessionTokenExpiredError");
+      }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
+  );
+
+  it.effect("preserves explicit session lifetimes and five-minute websocket tickets", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({ ttl: Duration.hours(1) });
+      const ticket = yield* sessions.issueWebSocketToken(issued.sessionId);
+
+      yield* TestClock.adjust(Duration.minutes(4));
+      expect((yield* sessions.verifyWebSocketToken(ticket.token)).sessionId).toBe(issued.sessionId);
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      const ticketError = yield* Effect.flip(sessions.verifyWebSocketToken(ticket.token));
+      expect(ticketError._tag).toBe("WebSocketTokenExpiredError");
+      expect((yield* sessions.verify(issued.token)).sessionId).toBe(issued.sessionId);
+
+      yield* TestClock.adjust(Duration.minutes(55));
+      const sessionError = yield* Effect.flip(sessions.verify(issued.token));
+      expect(sessionError._tag).toBe("SessionTokenExpiredError");
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
+  );
+
   it.effect.each(["revoke", "revokeAllExcept", "replace"] as const)(
     "invalidates every connection for a session on %s and leaves other sessions active",
     (operation) =>
