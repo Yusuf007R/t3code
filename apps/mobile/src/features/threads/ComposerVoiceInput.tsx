@@ -97,6 +97,7 @@ export function ComposerVoiceInput(props: {
     visible: props.visible,
   };
   const availabilityRef = useRef(availability);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Native recorder callbacks need the committed connection and permissions.
   useLayoutEffect(() => {
     availabilityRef.current = availability;
     preparedRef.current = prepared;
@@ -316,6 +317,7 @@ export function ComposerVoiceInput(props: {
     }
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Stop the native audio session when its destination changes.
   useEffect(() => {
     if (previousContextKeyRef.current === contextKey) {
       return;
@@ -326,12 +328,14 @@ export function ComposerVoiceInput(props: {
     }
   }, [cancelVoiceOperation, contextKey]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Revoke native capture when connection or permissions become unavailable.
   useEffect(() => {
     if (phaseRef.current !== "idle" && mobileVoiceInputUnavailableReason(availability) !== null) {
       cancelVoiceOperation();
     }
   }, [availability, cancelVoiceOperation]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Observe native recorder completion and its duration limit.
   useEffect(() => {
     if (
       phaseRef.current === "recording" &&
@@ -342,6 +346,7 @@ export function ComposerVoiceInput(props: {
     }
   }, [recorderState.durationMillis, recorderState.isRecording, stopAndTranscribe]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribe to OS app-state changes to release microphone capture in the background.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (
@@ -354,6 +359,7 @@ export function ComposerVoiceInput(props: {
     return () => subscription.remove();
   }, [cancelVoiceOperation]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Release the native audio session and pending upload on unmount.
   useEffect(() => {
     mountedRef.current = true;
     return () => {

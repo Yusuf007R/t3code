@@ -49,6 +49,7 @@ export function ComposerVoiceInput(props: {
     disabled: props.disabled,
   };
   const availabilityRef = useRef(availability);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Recorder callbacks need the committed capture permissions.
   useLayoutEffect(() => {
     availabilityRef.current = availability;
   }, [availability]);
@@ -59,7 +60,6 @@ export function ComposerVoiceInput(props: {
     if (recorder) {
       recorder.ondataavailable = null;
       recorder.onstop = null;
-      // oxlint-disable-next-line unicorn/prefer-add-event-listener -- this component owns the recorder and its single handlers
       recorder.onerror = null;
       if (stopRecorder && recorder.state !== "inactive") recorder.stop();
     }
@@ -68,6 +68,7 @@ export function ComposerVoiceInput(props: {
     recorderRef.current = null;
   });
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Release the native microphone stream when this control unmounts.
   useEffect(
     () => () => {
       operationRef.current += 1;
@@ -81,6 +82,7 @@ export function ComposerVoiceInput(props: {
     releaseCapture(true);
     setState("idle");
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Revoke an active native recording when capture becomes unavailable.
   useEffect(() => {
     if (unavailableReason !== null) resetCapture();
   }, [resetCapture, unavailableReason]);
@@ -155,7 +157,6 @@ export function ComposerVoiceInput(props: {
         releaseCapture();
         void transcribe(blob, operation);
       };
-      // oxlint-disable-next-line unicorn/prefer-add-event-listener -- this component owns the recorder and its single handlers
       recorder.onerror = () => {
         releaseCapture();
         setState("idle");
