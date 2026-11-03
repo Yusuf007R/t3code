@@ -1,22 +1,43 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, expect, it, vi } from "vite-plus/test";
 
-import config from "./app.config";
+// Keep config parsing independent of local env files and build credentials.
+vi.mock("../../scripts/lib/public-config.ts", () => ({
+  loadRepoEnv: () => ({ APP_VARIANT: process.env.APP_VARIANT }),
+}));
 
-function pluginOptions(name: string): Record<string, unknown> {
-  const plugin = config.plugins?.find((entry) => Array.isArray(entry) && entry[0] === name);
-  if (!Array.isArray(plugin)) {
-    throw new Error(`Missing ${name} config plugin`);
-  }
-  return plugin[1] as Record<string, unknown>;
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+async function loadConfig(variant: string | undefined) {
+  vi.resetModules();
+  vi.stubEnv("APP_VARIANT", variant);
+  return (await import("./app.config.ts")).default;
 }
 
-describe("mobile app config", () => {
-  it("preserves Android microphone access for composer voice input", () => {
-    const audio = pluginOptions("expo-audio");
-    const imagePicker = pluginOptions("expo-image-picker");
+it.each(["prod", ""])("rejects APP_VARIANT=%j before selecting production IDs", async (value) => {
+  await expect(loadConfig(value)).rejects.toThrow(
+    "APP_VARIANT must be development, preview, or production.",
+  );
+});
 
-    expect(audio.recordAudioAndroid).toBe(true);
-    expect(imagePicker.microphonePermission).toBe(audio.microphonePermission);
-    expect(imagePicker.microphonePermission).not.toBe(false);
-  });
+it.each([
+  [undefined, "com.t3tools.t3code"],
+  ["development", "com.t3tools.t3code.dev"],
+  ["preview", "com.t3tools.t3code.preview"],
+  ["production", "com.t3tools.t3code"],
+])("keeps the iOS and Android identifiers for APP_VARIANT=%j", async (value, identifier) => {
+  const config = await loadConfig(value);
+  expect(config.ios?.bundleIdentifier).toBe(identifier);
+  expect(config.android?.package).toBe(identifier);
+  const options = (name: string) => {
+    const plugin = config.plugins?.find((entry) => Array.isArray(entry) && entry[0] === name);
+    if (!Array.isArray(plugin)) throw new Error(`Missing ${name} config plugin`);
+    return plugin[1] as Record<string, unknown>;
+  };
+  const audio = options("expo-audio");
+  const imagePicker = options("expo-image-picker");
+  expect(audio.recordAudioAndroid).toBe(true);
+  expect(imagePicker.microphonePermission).toBe(audio.microphonePermission);
+  expect(imagePicker.microphonePermission).not.toBe(false);
 });

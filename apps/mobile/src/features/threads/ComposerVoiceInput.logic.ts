@@ -11,7 +11,7 @@ export const mobileVoiceInputUnavailableReason = (
   availability: MobileVoiceInputAvailability,
 ): string | null =>
   !availability.visible
-    ? "Voice input is only available with Codex"
+    ? "Voice input requires an authenticated Codex provider"
     : !availability.hasCodexOauth
       ? "Voice input requires a Codex ChatGPT OAuth login"
       : !availability.connected

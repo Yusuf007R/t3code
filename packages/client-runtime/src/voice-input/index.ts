@@ -1,3 +1,4 @@
+export { selectCodexVoiceProvider } from "./codexProvider.ts";
 export {
   VoiceInputController,
   VOICE_RECORDING_LIMIT_SECONDS,
