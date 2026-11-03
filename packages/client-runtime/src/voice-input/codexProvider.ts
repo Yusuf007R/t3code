@@ -1,6 +1,6 @@
 import type { ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
 
-type VoiceProvider = Pick<ServerProvider, "instanceId" | "driver" | "auth" | "state">;
+type VoiceProvider = Pick<ServerProvider, "instanceId" | "driver" | "auth" | "enabled">;
 
 export function selectCodexVoiceProvider(
   providers: ReadonlyArray<VoiceProvider>,
@@ -8,7 +8,7 @@ export function selectCodexVoiceProvider(
 ) {
   const available = (provider: VoiceProvider) =>
     provider.driver === "codex" &&
-    provider.state !== "disabled" &&
+    provider.enabled &&
     provider.auth.type === "chatgpt" &&
     provider.auth.status === "authenticated";
   return (

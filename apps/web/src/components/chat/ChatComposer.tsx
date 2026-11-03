@@ -203,7 +203,7 @@ import {
 } from "./ComposerAttachmentStrip";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerVoiceInput } from "./ComposerVoiceInput";
-import { selectCodexVoiceProvider } from "@t3tools/client-runtime/voice-input";
+import { selectCodexVoiceProvider } from "@t3tools/client-runtime/voice-input/codex-provider";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";

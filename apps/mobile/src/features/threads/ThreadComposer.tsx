@@ -115,7 +115,7 @@ import {
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
 import { ComposerVoiceInput } from "./ComposerVoiceInput";
-import { selectCodexVoiceProvider } from "@t3tools/client-runtime/voice-input";
+import { selectCodexVoiceProvider } from "@t3tools/client-runtime/voice-input/codex-provider";
 import { insertMobileVoiceTranscription } from "./ComposerVoiceInput.logic";
 import type { ExistingThreadSettingsRouteParams } from "./ThreadSettingsSheet";
 import {

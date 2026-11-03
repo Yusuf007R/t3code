@@ -1,12 +1,12 @@
-import { ProviderInstanceId } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { selectCodexVoiceProvider } from "./codexProvider.ts";
 
 const codex = {
   instanceId: ProviderInstanceId.make("codex-account"),
-  driver: "codex" as const,
-  state: "ready" as const,
+  driver: ProviderDriverKind.make("codex"),
+  enabled: true,
   auth: { type: "chatgpt", status: "authenticated" as const },
 };
 
@@ -20,7 +20,7 @@ describe("Codex voice provider routing", () => {
 
   it("prefers the selected Codex account, otherwise uses an authenticated enabled account", () => {
     const preferred = { ...codex, instanceId: ProviderInstanceId.make("second-codex") };
-    const disabled = { ...codex, state: "disabled" as const };
+    const disabled = { ...codex, enabled: false };
     const apiKey = { ...codex, auth: { type: "apiKey", status: "authenticated" as const } };
     const signedOut = { ...codex, auth: { type: "chatgpt", status: "unauthenticated" as const } };
     expect(selectCodexVoiceProvider([codex, preferred], preferred.instanceId)).toBe(preferred);

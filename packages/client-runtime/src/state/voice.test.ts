@@ -90,6 +90,7 @@ it.effect("signs the current relay URL used for transcription", () => {
     Effect.provideService(RemoteEnvironmentAuthorization, {
       authorizeBearer: () => Effect.die("Unexpected bearer preparation"),
       authorizeDpop: () => Effect.die("Unexpected WebSocket preparation"),
+      renewDpopBeforeExpiry: () => Effect.die("HTTP requests must not renew a socket's token."),
       authorizeDpopHttp: () =>
         Effect.succeed({
           environmentId: target.environmentId,
