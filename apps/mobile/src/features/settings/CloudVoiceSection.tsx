@@ -10,6 +10,7 @@ import {
   CLOUD_SPEECH_LABELS,
   CLOUD_SPEECH_PROVIDER_NAMES,
   CloudSpeechProvider,
+  type CloudSpeechApiKeyProvider,
   CloudSpeechApiKey,
   CloudSpeechModelId,
   isSecretReference,
@@ -147,7 +148,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
   const reload = useAtomRefresh(cloudVoiceKeysAtom(id));
   const canManage = useEnvironmentScope(id, AuthSettingsWriteScope);
   const [editing, setEditing] = useState<{
-    provider: CloudSpeechProvider;
+    provider: CloudSpeechApiKeyProvider;
     enable: boolean;
   } | null>(null);
   const catalogAtom = cloudVoiceModelsAtom(editing?.provider === "openrouter" ? id : null);
@@ -180,7 +181,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
       );
     }
   };
-  const edit = (provider: CloudSpeechProvider, enable: boolean) => {
+  const edit = (provider: CloudSpeechApiKeyProvider, enable: boolean) => {
     const stored = environment.serverConfig?.settings.cloudSpeechCredentials?.[provider];
     const ref =
       isSecretReference(stored) && sources.some((candidate) => candidate.id === stored.provider)
@@ -197,7 +198,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
     setEditing(null);
   };
   const changeKey = async (
-    provider: CloudSpeechProvider,
+    provider: CloudSpeechApiKeyProvider,
     value: SettingsSecretValue | null,
     chosen?: CloudSpeechModelId,
   ) => {
@@ -245,6 +246,34 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
         const disclosure = cloudSpeechDisclosure(provider, environment.label);
         const saved = keys.value![provider];
         const isActive = active?.provider === provider;
+        const confirm = () =>
+          Dialog.confirm({
+            title: `Use ${label} for dictation?`,
+            message: `${disclosure} Select This device to stop sharing.`,
+            confirmText: `Use ${label}`,
+            onConfirm: () => enable(pendingCloudVoiceChoice(id, provider)),
+          });
+        if (provider === "codex")
+          return (
+            <ListChoiceRow
+              key={provider}
+              label={label}
+              leading={<ProviderIcon provider="codex" size={20} />}
+              selected={isActive}
+              disabled={saved === undefined || isActive || saving}
+              description={
+                saved === undefined
+                  ? "Update the environment to use Codex Subscription"
+                  : saved
+                    ? "Uses the Codex CLI sign-in on this environment"
+                    : "Sign in with the Codex CLI on this environment, then tap to check again"
+              }
+              onPress={() => {
+                if (saved) confirm();
+                else reload();
+              }}
+            />
+          );
         const isEditing = editing?.provider === provider;
         const modelChosen =
           isModelId(model) && (catalog?.some((entry) => entry.id === model) ?? false);
@@ -308,12 +337,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
                     if (canManage) edit(provider, false);
                     return;
                   }
-                  Dialog.confirm({
-                    title: `Use ${label} for dictation?`,
-                    message: `${disclosure} Select This device to stop sharing.`,
-                    confirmText: `Use ${label}`,
-                    onConfirm: () => enable(pendingCloudVoiceChoice(id, provider)),
-                  });
+                  confirm();
                 }}
               />
             )}

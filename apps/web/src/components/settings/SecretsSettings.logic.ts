@@ -1,6 +1,6 @@
 import {
   CLOUD_SPEECH_LABELS,
-  CloudSpeechProvider,
+  CloudSpeechApiKeyProvider,
   EasDeviceHostConfig,
   isSecretReference,
   secretReferencesInSettings,
@@ -92,7 +92,7 @@ export function secretProviderUses(
     ...settings.easDeviceHosts.flatMap((host) =>
       uses({ settingsSchema: EasDeviceHostConfig }, `eas:${host.id}`, host.label, host),
     ),
-    ...CloudSpeechProvider.literals.flatMap((provider) => {
+    ...CloudSpeechApiKeyProvider.literals.flatMap((provider) => {
       const credential = settings.cloudSpeechCredentials[provider];
       return isSecretReference(credential) && credential.provider === providerId
         ? [{ id: `voice:${provider}`, label: `Voice · ${CLOUD_SPEECH_LABELS[provider]}` }]

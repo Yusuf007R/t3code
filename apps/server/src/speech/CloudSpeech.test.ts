@@ -1,14 +1,102 @@
 import { it } from "@effect/vitest";
-import { DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS, SecretProviderId } from "@t3tools/contracts";
+import {
+  DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  SecretProviderId,
+} from "@t3tools/contracts";
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Redacted from "effect/Redacted";
 import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import { expect, vi } from "vite-plus/test";
 import * as ServerSettings from "../serverSettings.ts";
 import * as CloudSpeech from "./CloudSpeech.ts";
+
+const noCodexLogin = Layer.merge(FileSystem.layerNoop({}), Path.layer);
+
+it.effect("uses the enabled Codex subscription's shadow login for cloud dictation", () =>
+  Effect.gen(function* () {
+    const driver = ProviderDriverKind.make("codex");
+    const instanceId = ProviderInstanceId.make("codex");
+    const instance = {
+      driver,
+      config: { homePath: "/fixture/shared", shadowHomePath: "/fixture/signed-in" },
+    };
+    let auth = JSON.stringify({
+      auth_mode: "chatgpt",
+      tokens: { access_token: "test-codex-oauth", account_id: "test-account" },
+    });
+    const read = vi.fn((path: string) =>
+      Effect.succeed(path === "/fixture/signed-in/auth.json" ? auth : "{}"),
+    );
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ text: "T three" }));
+    const settings = yield* ServerSettings.ServerSettingsService;
+    const cloud = yield* CloudSpeech.CloudSpeech.pipe(
+      Effect.provide(
+        CloudSpeech.layer.pipe(
+          Layer.provide(FetchHttpClient.layer),
+          Layer.provide(Layer.mock(SecretResolver.SecretResolver)({})),
+          Layer.provide(FileSystem.layerNoop({ readFileString: read })),
+          Layer.provide(Path.layer),
+        ),
+      ),
+    );
+    const transcribe = cloud
+      .transcribe("codex", new Uint8Array(new Float32Array([0, 0.5]).buffer), {
+        ...DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS,
+        speechCustomWords: [{ term: "T3", aliases: ["T three"] }],
+      })
+      .pipe(Effect.provideService(FetchHttpClient.Fetch, fetch));
+    expect((yield* cloud.configured).codex).toBe(true);
+    expect(yield* transcribe).toBe("T3");
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(String(url)).toBe("https://chatgpt.com/backend-api/transcribe");
+    expect(init?.redirect).toBe("error");
+    const headers = new Headers(init?.headers);
+    expect(headers.get("authorization")).toBe("Bearer test-codex-oauth");
+    expect(headers.get("ChatGPT-Account-Id")).toBe("test-account");
+    const form = init?.body;
+    expect(form).toBeInstanceOf(FormData);
+    if (!(form instanceof FormData)) return yield* Effect.die("Expected a multipart WAV");
+    expect([...form.keys()]).toEqual(["file"]);
+    const file = form.get("file");
+    if (!(file instanceof Blob)) return yield* Effect.die("Expected audio file");
+    const wav = new DataView(yield* Effect.promise(() => file.arrayBuffer()));
+    expect(file.type).toBe("audio/wav");
+    expect(wav.getUint32(24, true)).toBe(16_000);
+    expect(wav.getInt16(46, true)).toBe(16384);
+    fetch.mockResolvedValueOnce(new Response("private diagnostic", { status: 401 }));
+    expect(yield* Effect.flip(transcribe)).toMatchObject({ reason: "rejected-login" });
+    auth = JSON.stringify({ auth_mode: "apikey" });
+    expect((yield* cloud.configured).codex).toBe(false);
+    expect(yield* Effect.flip(transcribe)).toMatchObject({ reason: "missing-login" });
+    yield* settings.updateProviderInstance({
+      operation: "upsert",
+      instanceId,
+      instance: { ...instance, enabled: false },
+    });
+    read.mockClear();
+    expect(yield* Effect.flip(transcribe)).toMatchObject({ reason: "missing-login" });
+    expect(read).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  }).pipe(
+    Effect.provide(
+      ServerSettings.ServerSettingsService.layerTest({
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: {
+            driver: ProviderDriverKind.make("codex"),
+            config: { homePath: "/fixture/shared", shadowHomePath: "/fixture/signed-in" },
+          },
+        },
+      }),
+    ),
+  ),
+);
 
 it.effect.each(["openai", "xai"] as const)("sends only to %s using its own saved key", (provider) =>
   Effect.gen(function* () {
@@ -25,6 +113,7 @@ it.effect.each(["openai", "xai"] as const)("sends only to %s using its own saved
         CloudSpeech.layer.pipe(
           Layer.provide(FetchHttpClient.layer),
           Layer.provide(ServerSettings.ServerSettingsService.layerTest()),
+          Layer.provide(noCodexLogin),
           Layer.provide(
             Layer.mock(SecretResolver.SecretResolver)({
               read,
@@ -49,7 +138,12 @@ it.effect.each(["openai", "xai"] as const)("sends only to %s using its own saved
     yield* service.setKey(provider === "openai" ? "xai" : "openai", Redacted.make("other"));
     expect((yield* Effect.flip(transcribe()))._tag).toBe("CloudSpeechError");
     yield* service.setKey(provider, Redacted.make("chosen"));
-    expect(yield* service.configured).toEqual({ openai: true, xai: true, openrouter: false });
+    expect(yield* service.configured).toEqual({
+      openai: true,
+      xai: true,
+      openrouter: false,
+      codex: false,
+    });
     yield* Effect.flip(transcribe(new Uint8Array(3)));
     expect(upstream).not.toHaveBeenCalled();
     expect(yield* transcribe()).toBe("hello");
@@ -109,6 +203,7 @@ it.effect("uploads to OpenRouter only for a listed exact model, as zero-retentio
           Layer.provide(FetchHttpClient.layer),
           Layer.provide(ServerSettings.ServerSettingsService.layerTest()),
           Layer.provide(Layer.mock(SecretResolver.SecretResolver)({})),
+          Layer.provide(noCodexLogin),
         ),
       ),
     );
@@ -167,6 +262,7 @@ it.effect("removing a key while a catalog read is pending prevents the upload", 
           Layer.provide(FetchHttpClient.layer),
           Layer.provide(ServerSettings.ServerSettingsService.layerTest()),
           Layer.provide(Layer.mock(SecretResolver.SecretResolver)({})),
+          Layer.provide(noCodexLogin),
         ),
       ),
     );

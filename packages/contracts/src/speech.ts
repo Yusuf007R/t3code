@@ -7,23 +7,31 @@ export const CloudSpeechApiKey = TrimmedNonEmptyString.check(
   Schema.isPattern(/^(?![a-z][a-z\d+.-]*:\/\/)[!-~]+$/i),
 );
 
-export const CloudSpeechProvider = Schema.Literals(["openai", "xai", "openrouter"]);
+export const CloudSpeechApiKeyProvider = Schema.Literals(["openai", "xai", "openrouter"]);
+export type CloudSpeechApiKeyProvider = typeof CloudSpeechApiKeyProvider.Type;
+export const CloudSpeechProvider = Schema.Literals([
+  ...CloudSpeechApiKeyProvider.literals,
+  "codex",
+]);
 export type CloudSpeechProvider = typeof CloudSpeechProvider.Type;
 export const CLOUD_SPEECH_LABELS = {
   openai: "OpenAI",
   xai: "Grok Voice Transcribe",
   openrouter: "OpenRouter",
+  codex: "Codex Subscription",
 } as const;
 export const CLOUD_SPEECH_PROVIDER_NAMES = {
   openai: "OpenAI",
   xai: "xAI",
   openrouter: "OpenRouter",
+  codex: "ChatGPT",
 } as const;
-/** Servers that predate OpenRouter report only the first two providers. */
+/** Older servers omit provider entries they don't support. Codex reports sign-in, not an API key. */
 export const CloudSpeechKeys = Schema.Struct({
   openai: Schema.Boolean,
   xai: Schema.Boolean,
   openrouter: Schema.optionalKey(Schema.Boolean),
+  codex: Schema.optionalKey(Schema.Boolean),
 });
 export type CloudSpeechKeys = typeof CloudSpeechKeys.Type;
 
@@ -48,6 +56,8 @@ export class CloudSpeechError extends Schema.TaggedError<CloudSpeechError>()(
       "key-changed",
       "unreadable-key",
       "rejected-key",
+      "missing-login",
+      "rejected-login",
       "rate-limit",
       "model-unavailable",
       "unavailable",
@@ -66,6 +76,10 @@ export class CloudSpeechError extends Schema.TaggedError<CloudSpeechError>()(
         return `Couldn’t read the ${name} API key. Unlock the vault on the selected environment or update the key in Settings → Voice. No audio was sent to ${name}.`;
       case "rejected-key":
         return `${name} rejected this API key. Check its permissions and billing in Settings → Voice.`;
+      case "missing-login":
+        return "Sign in with the Codex CLI on the selected environment to use subscription dictation.";
+      case "rejected-login":
+        return "ChatGPT rejected the Codex sign-in. Check your Codex login on the selected environment.";
       case "rate-limit":
         return `${name} reached a usage limit. Check the account's quota or try again later.`;
       case "model-unavailable":

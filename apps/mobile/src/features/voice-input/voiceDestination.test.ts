@@ -220,6 +220,21 @@ it("keeps local as the default and never reuses consent for an offline or resele
     const upload = new URL(String(mocks.fetch.mock.lastCall![0]));
     expect(upload.pathname).toBe("/api/voice/cloud/openrouter/transcribe");
     expect(upload.searchParams.get("model")).toBe("acme/transcribe-1");
+    chooseVoiceDestination(host, "codex");
+    const subscription = appAtomRegistry.get(voiceRouteAtom)!.transcriber!;
+    mocks.fetch.mockResolvedValueOnce(Response.json({ openai: true, xai: true, codex: false }));
+    await expect(subscription.prepare(options)).rejects.toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("Sign in with the Codex CLI"),
+    });
+    mocks.fetch
+      .mockResolvedValueOnce(Response.json({ openai: true, xai: true, codex: true }))
+      .mockResolvedValueOnce(Response.json({ text: "subscription" }));
+    const codex = await subscription.prepare(options);
+    await expect(codex.transcribe("file:///voice.m4a", options)).resolves.toBe("subscription");
+    expect(new URL(String(mocks.fetch.mock.lastCall![0])).pathname).toBe(
+      "/api/voice/cloud/codex/transcribe",
+    );
     const failWrite = () => {
       throw new Error("Device storage is unavailable");
     };

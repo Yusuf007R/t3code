@@ -47,6 +47,12 @@ Vocabulary hints are not sent to OpenRouter; dictionary spellings are applied
 after transcription. If OpenRouter stops listing your model, dictation stops
 until you choose another.
 
+**Codex Subscription** uses an enabled Codex CLI account signed in with ChatGPT on
+the selected environment, without a separate API key. It sends the finished
+recording to ChatGPT but not vocabulary hints. The agent selected for your draft
+does not affect this choice. This fork option uses a private ChatGPT endpoint
+and may stop working if that endpoint changes.
+
 ## Set up a model
 
 In **Settings → Voice → Transcription**, download a model and choose **Use model** if it
