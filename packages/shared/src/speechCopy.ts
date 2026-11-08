@@ -8,6 +8,13 @@ export function cloudSpeechDisclosure(
   environment: string,
   resolve: MFunctionType = mFallback,
 ) {
+  if (provider === "codex")
+    return resolve(
+      msg(
+        "After you stop, {environment} sends the recording to ChatGPT using its Codex CLI sign-in. Vocabulary hints are not sent.",
+        { environment },
+      ),
+    );
   return provider === "openrouter"
     ? resolve(
         msg(

@@ -172,6 +172,7 @@ export function CloudVoiceConfiguration({
   const name = CLOUD_SPEECH_LABELS[provider];
   const company = CLOUD_SPEECH_PROVIDER_NAMES[provider];
   const routed = provider === "openrouter";
+  const subscription = provider === "codex";
   const formId = useId();
   const prepared = Option.getOrNull(usePreparedConnection(id));
   const canUse = useEnvironmentScope(id, AuthOrchestrationOperateScope);
@@ -192,7 +193,9 @@ export function CloudVoiceConfiguration({
   const [error, setError] = useState("");
   const [model, setModel] = useState(currentModel ?? "");
   const saved = AsyncResult.isSuccess(presence) ? presence.value?.[provider] : undefined;
-  const existing = environment.serverConfig?.settings?.cloudSpeechCredentials?.[provider];
+  const existing = subscription
+    ? undefined
+    : environment.serverConfig?.settings?.cloudSpeechCredentials?.[provider];
   const sources =
     isSecretsFeatureEnabled && environment.serverConfig?.secretReferences
       ? configuredSecretSources(environment.serverConfig.settings?.secretProviders ?? {}, messages)
@@ -219,26 +222,33 @@ export function CloudVoiceConfiguration({
     );
   const connected = canUse && prepared !== null;
   // Fixed providers edit the key only when nothing is saved or the device already uses them.
-  const editingKey = canManage && saved !== undefined && (routed || active || !saved);
+  const editingKey =
+    !subscription && canManage && saved !== undefined && (routed || active || !saved);
   const listedModels = AsyncResult.isSuccess(models) ? (models.value?.models ?? null) : null;
   const modelChosen = isModelId(model) && (listedModels?.some((m) => m.id === model) ?? false);
   const keyReady = draft.trim() ? credential !== undefined : Boolean(saved);
   const modelChanged = model !== (currentModel ?? "");
-  const destination = (): CloudDestination =>
-    routed && isModelId(model)
-      ? { kind: "cloud", provider: "openrouter", environmentId: id, model }
-      : { kind: "cloud", provider: provider as "openai" | "xai", environmentId: id };
-  const enable = () => chooseAudioDestination(destination());
+  const destination = (): CloudDestination | null =>
+    provider === "openrouter"
+      ? isModelId(model)
+        ? { kind: "cloud", provider, environmentId: id, model }
+        : null
+      : { kind: "cloud", provider, environmentId: id };
+  const enable = () => {
+    const next = destination();
+    if (next) chooseAudioDestination(next);
+  };
   const canSubmit = routed
     ? modelChosen && keyReady && (!active || modelChanged || keyChanged)
     : credential !== undefined;
 
   const saveKey = async (value: SettingsSecretValue | null, thenEnable: boolean) => {
-    if (!connected || !canManage || busy) return;
+    if (subscription || !connected || !canManage || busy) return;
     setError("");
     setBusy(true);
     try {
-      const commit = thenEnable ? pendingCloudAudioChoice(destination()) : null;
+      const next = thenEnable ? destination() : null;
+      const commit = next ? pendingCloudAudioChoice(next) : null;
       await runEnvironmentSpeech(setCloudSpeechKey(prepared, provider, value));
       refresh();
       commit?.();
@@ -335,7 +345,7 @@ export function CloudVoiceConfiguration({
           <DialogTitle>
             {remove
               ? gt("Remove the {company} key?", { company })
-              : active
+              : active && !subscription
                 ? routed
                   ? gt("Manage OpenRouter dictation")
                   : gt("Manage {company} key", { company })
@@ -347,7 +357,7 @@ export function CloudVoiceConfiguration({
                   name,
                   environment: environment.label,
                 })
-              : active && !routed
+              : active && !routed && !subscription
                 ? gt("Anyone with dictation access to {environment} can use this API key.", {
                     environment: environment.label,
                   })
@@ -364,20 +374,27 @@ export function CloudVoiceConfiguration({
               </p>
             ) : AsyncResult.isFailure(presence) && saved === undefined ? (
               <Button size="sm" variant="outline" onClick={refresh}>
-                <T>Retry loading API key</T>
+                {subscription ? <T>Retry checking Codex sign-in</T> : <T>Retry loading API key</T>}
               </Button>
-            ) : routed &&
+            ) : (routed || subscription) &&
               AsyncResult.isSuccess(presence) &&
               presence.value &&
               saved === undefined ? (
               <p>
                 <T>
-                  Update <Var>{environment.label}</Var> to use OpenRouter dictation.
+                  Update <Var>{environment.label}</Var> to use <Var>{name}</Var> dictation.
                 </T>
               </p>
             ) : saved === undefined ? (
               <p role="status">
-                <T>Checking for an API key…</T>
+                {subscription ? <T>Checking Codex sign-in…</T> : <T>Checking for an API key…</T>}
+              </p>
+            ) : subscription && !saved ? (
+              <p>
+                <T>Sign in with the Codex CLI on <Var>{environment.label}</Var>, then check again.</T>{" "}
+                <Button size="sm" variant="outline" onClick={refresh}>
+                  <T>Check sign-in</T>
+                </Button>
               </p>
             ) : routed ? (
               <form
@@ -457,7 +474,7 @@ export function CloudVoiceConfiguration({
           </p>
         )}
         <DialogFooter>
-          {connected && canManage && saved && (active || routed) && !remove && (
+          {!subscription && connected && canManage && saved && (active || routed) && !remove && (
             <div className="sm:mr-auto">
               <Button
                 type="button"

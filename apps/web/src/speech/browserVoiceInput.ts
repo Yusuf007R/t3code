@@ -1,6 +1,6 @@
 import { cloudSpeechLanguages, effectiveSpeechLanguage } from "@t3tools/shared/speech";
 import {
-  requireCloudSpeechKey,
+  requireCloudSpeechCredentials,
   transcribeCloudPcm,
   getEnvironmentSpeechStatus,
   getEnvironmentSpeechStreamUrl,
@@ -91,7 +91,7 @@ export function createBrowserVoiceInputPlatform(input: {
           message: m(msg("Choose an OpenRouter model in Settings → Voice.")),
         });
       await runEnvironmentSpeech(
-        requireCloudSpeechKey(input.prepared, input.cloudProvider),
+        requireCloudSpeechCredentials(input.prepared, input.cloudProvider),
         options,
       );
       throwIfVoiceTranscriptionAborted(options.signal);

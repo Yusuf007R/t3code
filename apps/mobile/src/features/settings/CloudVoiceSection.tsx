@@ -11,6 +11,7 @@ import {
   CLOUD_SPEECH_LABELS,
   CLOUD_SPEECH_PROVIDER_NAMES,
   CloudSpeechProvider,
+  type CloudSpeechApiKeyProvider,
   CloudSpeechApiKey,
   CloudSpeechModelId,
   isSecretReference,
@@ -189,7 +190,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
   const reload = useAtomRefresh(cloudVoiceKeysAtom(id));
   const canManage = useEnvironmentScope(id, AuthSettingsWriteScope);
   const [editing, setEditing] = useState<{
-    provider: CloudSpeechProvider;
+    provider: CloudSpeechApiKeyProvider;
     enable: boolean;
   } | null>(null);
   const catalogAtom = cloudVoiceModelsAtom(editing?.provider === "openrouter" ? id : null);
@@ -222,7 +223,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
       );
     }
   };
-  const edit = (provider: CloudSpeechProvider, enable: boolean) => {
+  const edit = (provider: CloudSpeechApiKeyProvider, enable: boolean) => {
     const stored = environment.serverConfig?.settings.cloudSpeechCredentials?.[provider];
     const ref =
       isSecretReference(stored) && sources.some((candidate) => candidate.id === stored.provider)
@@ -239,7 +240,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
     setEditing(null);
   };
   const changeKey = async (
-    provider: CloudSpeechProvider,
+    provider: CloudSpeechApiKeyProvider,
     value: SettingsSecretValue | null,
     chosen?: CloudSpeechModelId,
   ) => {
@@ -286,7 +287,7 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
     if (!editing)
       return (
         <ListSection
-          footer={gt("Audio is sent through {environment} using its API key.", {
+          footer={gt("Audio is sent through {environment} using the selected provider.", {
             environment: environment.label,
           })}
         >
@@ -295,6 +296,35 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
             const routed = provider === "openrouter";
             const key = saved[provider];
             const isActive = active?.provider === provider;
+            if (provider === "codex")
+              return (
+                <ListChoiceRow
+                  key={provider}
+                  label={label}
+                  leading={<ProviderIcon provider="codex" size={20} />}
+                  selected={isActive}
+                  separated={index > 0}
+                  disabled={key === undefined || isActive || saving}
+                  description={
+                    key === undefined
+                      ? gt("Update the environment to use Codex Subscription")
+                      : key
+                        ? gt("Uses the Codex CLI sign-in on this environment")
+                        : gt("Sign in with the Codex CLI on this environment, then tap to check again")
+                  }
+                  onPress={() => {
+                    if (!key) return reload();
+                    Dialog.confirm({
+                      title: gt("Use {provider} for dictation?", { provider: label }),
+                      message: gt("{disclosure} Select This device to stop sharing.", {
+                        disclosure: cloudSpeechDisclosure(provider, environment.label, messages),
+                      }),
+                      confirmText: gt("Use {provider}", { provider: label }),
+                      onConfirm: () => enable(pendingCloudVoiceChoice(id, provider)),
+                    });
+                  }}
+                />
+              );
             return (
               <ListChoiceRow
                 key={provider}

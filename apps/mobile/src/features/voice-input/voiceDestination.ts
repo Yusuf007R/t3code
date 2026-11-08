@@ -13,7 +13,7 @@ import {
   getEnvironmentSpeechModels,
   getCloudSpeechKeys,
   getCloudSpeechModels,
-  requireCloudSpeechKey,
+  requireCloudSpeechCredentials,
   transcribeCloudPcm,
   getEnvironmentSpeechStatus,
   transcribeEnvironmentPcm,
@@ -149,7 +149,7 @@ function environmentTranscriber(
     canSend,
     prepare: async (signal) => {
       if (provider) {
-        await runSpeech(requireCloudSpeechKey(prepared, provider), signal, canSend);
+        await runSpeech(requireCloudSpeechCredentials(prepared, provider), signal, canSend);
         return "auto";
       }
       const status = await runSpeech(getEnvironmentSpeechStatus(prepared), signal, canSend);
