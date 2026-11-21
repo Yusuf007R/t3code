@@ -118,9 +118,9 @@
   "c4eb2b21c8c58a54": "標準",
   "f42c2a36b3507308": "{label} オン",
   "77cc5f738cb7d459": "{label} オフ",
-  "2159a4897d4a4d73": "{runtime, select, codex {{names} を使用するには、Codex CLI を {version} 以降に更新してください。} other {{names} を使用するには、{providerName} を {version} 以降に更新してください。}}",
-  "a0854b0f9604fc7b": "{runtime, select, codex {{names} を使用するには Codex CLI {version} 以降が必要ですが、このインストールで更新できる最新バージョンは {latestVersion} です。別の方法で Codex CLI をインストールするか、新しいリリースをお待ちください。} other {{names} を使用するには {providerName} {version} 以降が必要ですが、このインストールで更新できる最新バージョンは {latestVersion} です。別の方法で {providerName} をインストールするか、新しいリリースをお待ちください。}}",
   "aba3bb73ce212f0c": "{names} を使うには {providerName} {version} 以降が必要ですが、Homebrew の claude-code cask には {latestVersion} までしかありません。claude-code@latest cask に切り替えてください: {command}",
+  "a0854b0f9604fc7b": "{runtime, select, codex {{names} を使用するには Codex CLI {version} 以降が必要ですが、このインストールで更新できる最新バージョンは {latestVersion} です。別の方法で Codex CLI をインストールするか、新しいリリースをお待ちください。} other {{names} を使用するには {providerName} {version} 以降が必要ですが、このインストールで更新できる最新バージョンは {latestVersion} です。別の方法で {providerName} をインストールするか、新しいリリースをお待ちください。}}",
+  "2159a4897d4a4d73": "{runtime, select, codex {{names} を使用するには、Codex CLI を {version} 以降に更新してください。} other {{names} を使用するには、{providerName} を {version} 以降に更新してください。}}",
   "d887bea446534de5": "この環境には {host}/{repository} を読み取れるプロジェクトがありません。",
   "4e466d60e2f7736b": "プルリクエストの完全な URL を貼り付けてください。このスレッドには番号を解決するためのリポジトリがありません。",
   "302625058bacbe38": "完全な URL を貼り付けてください。このプロジェクトのホストには既知の {changeRequest} URL がありません。",
@@ -1102,6 +1102,7 @@
   "4410caad205bcac7": "このリンクは T3 Code が読み取れないプルリクエストを指しています。",
   "df1915cc1c939ef9": "このリンクにはプロンプトがありません。",
   "6024bfa21d5b2f40": "このリンクは T3 Code が読み取れないリポジトリを指しています。",
+  "b94d3bb6a5e93225": "After you stop, {environment} sends the recording to ChatGPT using its Codex CLI sign-in. Vocabulary hints are not sent.",
   "207267a58d3542ba": "停止すると、{environment} が録音を OpenRouter に送信します。モデルを実行する事業者は OpenRouter が選びます。T3 はデータを保持しないよう求めていますが、OpenRouter アカウントの設定によっては安全のための保持が許可されている場合があります。",
   "81b64c298285297c": "停止すると、{environment} が録音と、プロジェクト名を含む語彙のヒントを {provider} に送信します。",
   "615ce9f2edf7208f": "プルリクエストをリンク",
@@ -2558,10 +2559,9 @@
     },
     " にインストール"
   ],
+  "b4b98a0287c282e2": "別のマシン上にあるため、このマシンのエージェントは読み取れません。削除するか、元に戻してから送信してください。",
   "5bbac0e5afeec779": "現在のスレッド",
   "33c7e68fca089036": "スレッド、{title}",
-  "b4b98a0287c282e2": "別のマシン上にあるため、このマシンのエージェントは読み取れません。削除するか、元に戻してから送信してください。",
-  "c6196d99000642b4": "スレッドを開く",
   "34cc63390ad793cc": "スレッドを選択",
   "8f12309ead62e38a": "スレッドまたはプロジェクトを検索...",
   "2f664754d005d9a7": "アクティブなスレッドが見つかりません。",
@@ -2571,6 +2571,7 @@
   "a3178769f8308cbc": "スレッドが失敗しました",
   "89b5e8f3887812da": "ゲストのリクエスト",
   "62e626804919b294": "入力が必要です",
+  "c6196d99000642b4": "スレッドを開く",
   "826cb862b4a11fb3": "{label}:",
   "3e597ec938e7551b": "あなた:",
   "a1fbf2422c588292": "エージェント:",
@@ -3032,8 +3033,8 @@
   "6f85f14f35b3f547": "{provider} ({environment} 経由)",
   "7c59a888a062a8bd": "音声入力を記録する下書きがありません。",
   "62450481c00d2ef3": "下書きの環境を利用できないため、文字起こしを整形できません。",
-  "c64cb58d9cecbcd2": "文字起こしの整形に失敗しました",
   "0674544195fcdc39": "元の文字起こしを追加しました。",
+  "c64cb58d9cecbcd2": "文字起こしの整形に失敗しました",
   "296496693cdac0db": "t3 コマンドを利用できません。",
   "efbcef7bc9bbda01": "t3 コマンドの状態を読み込めませんでした。",
   "1bf6910332426e62": "デスクトップのネットワークアクセスを利用できません。",
@@ -3975,9 +3976,11 @@
   "973e99fa86d7f531": "キュー内のメッセージ {position}/{total}、未送信",
   "0f6087c4f53c7f17": "このメッセージでターンを開始 ({shortcut})",
   "adab89933af02669": "圧縮をスキップしてこのメッセージを送信 ({shortcut})",
+  "d8aaf932f90429c4": "このコマンドをキューの先頭に移動 ({shortcut})",
   "3de4016452e8d2bd": "現在のターンに送信 ({shortcut})",
   "259cc9568148e8ad": "このメッセージでターンを開始",
   "bb7fddb812d5d29e": "圧縮をスキップしてこのメッセージを送信",
+  "425ab15036aec8a4": "このコマンドをキューの先頭に移動",
   "a5fe1ee609b29a9f": "現在のターンに送信",
   "2b7fd345e4f4fd6e": "キュー内のメッセージの編集をキャンセル",
   "47f1726bf106d2c8": "キュー内のメッセージを編集",
@@ -7848,17 +7851,35 @@
     },
     " に接続してください。"
   ],
+  "8b71f5c8ba160443": "Retry checking Codex sign-in",
   "1d33877ef8ea3559": "API キーの読み込みを再試行",
-  "be805c1729dc0726": [
-    "OpenRouter の音声入力を使うには ",
+  "2b5b356019c6857b": [
+    "Update ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    " を更新してください。"
+    " to use ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " dictation."
   ],
+  "d17ec05b02778723": "Checking Codex sign-in…",
   "d7acad5dde4c1d1b": "API キーを確認しています…",
+  "79de03af1ac0d0d2": [
+    "Sign in with the Codex CLI on ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ", then check again."
+  ],
+  "36cd63919d85bb60": "Check sign-in",
   "8257030da7a4ad4e": "モデル",
   "418d9b293a8983a9": [
     {
@@ -12407,7 +12428,5 @@
   "27d76249d09eb69f": "レビューガイドの準備ができました",
   "faa3bb26abb39c93": "レビューガイドの作成に失敗しました",
   "b7df38b7d8792d78": "ガイドを開く",
-  "9e91e9a77b664e4e": "レビューガイドを開始できませんでした",
-  "d8aaf932f90429c4": "このコマンドをキューの先頭に移動 ({shortcut})",
-  "425ab15036aec8a4": "このコマンドをキューの先頭に移動"
+  "9e91e9a77b664e4e": "レビューガイドを開始できませんでした"
 }

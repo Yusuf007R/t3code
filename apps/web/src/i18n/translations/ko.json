@@ -118,9 +118,9 @@
   "c4eb2b21c8c58a54": "보통",
   "f42c2a36b3507308": "{label} 켜짐",
   "77cc5f738cb7d459": "{label} 꺼짐",
-  "2159a4897d4a4d73": "{runtime, select, codex {{names}을(를) 사용하려면 Codex CLI를 {version} 이상으로 업데이트하세요.} other {{names}을(를) 사용하려면 {providerName}을(를) {version} 이상으로 업데이트하세요.}}",
-  "a0854b0f9604fc7b": "{runtime, select, codex {{names}을(를) 사용하려면 Codex CLI {version} 이상이 필요하지만, 이 설치에서 업데이트할 수 있는 최신 버전은 {latestVersion}입니다. 다른 방법으로 Codex CLI를 설치하거나 새 릴리스를 기다리세요.} other {{names}을(를) 사용하려면 {providerName} {version} 이상이 필요하지만, 이 설치에서 업데이트할 수 있는 최신 버전은 {latestVersion}입니다. 다른 방법으로 {providerName}을(를) 설치하거나 새 릴리스를 기다리세요.}}",
   "aba3bb73ce212f0c": "{names}을(를) 사용하려면 {providerName} {version} 이상이 필요하지만 Homebrew claude-code cask에는 {latestVersion}까지만 있습니다. claude-code@latest cask로 전환하세요: {command}",
+  "a0854b0f9604fc7b": "{runtime, select, codex {{names}을(를) 사용하려면 Codex CLI {version} 이상이 필요하지만, 이 설치에서 업데이트할 수 있는 최신 버전은 {latestVersion}입니다. 다른 방법으로 Codex CLI를 설치하거나 새 릴리스를 기다리세요.} other {{names}을(를) 사용하려면 {providerName} {version} 이상이 필요하지만, 이 설치에서 업데이트할 수 있는 최신 버전은 {latestVersion}입니다. 다른 방법으로 {providerName}을(를) 설치하거나 새 릴리스를 기다리세요.}}",
+  "2159a4897d4a4d73": "{runtime, select, codex {{names}을(를) 사용하려면 Codex CLI를 {version} 이상으로 업데이트하세요.} other {{names}을(를) 사용하려면 {providerName}을(를) {version} 이상으로 업데이트하세요.}}",
   "d887bea446534de5": "이 환경에는 {host}/{repository}을(를) 읽을 수 있는 프로젝트가 없습니다.",
   "4e466d60e2f7736b": "전체 풀 리퀘스트 URL을 붙여 넣으세요. 이 스레드에는 번호를 확인할 저장소가 없습니다.",
   "302625058bacbe38": "전체 URL을 붙여 넣으세요. 이 프로젝트의 호스트에는 알려진 {changeRequest} URL이 없습니다.",
@@ -1102,6 +1102,7 @@
   "4410caad205bcac7": "이 링크는 T3 Code가 읽을 수 없는 풀 리퀘스트를 가리킵니다.",
   "df1915cc1c939ef9": "이 링크에는 프롬프트가 없습니다.",
   "6024bfa21d5b2f40": "이 링크는 T3 Code가 읽을 수 없는 저장소를 가리킵니다.",
+  "b94d3bb6a5e93225": "After you stop, {environment} sends the recording to ChatGPT using its Codex CLI sign-in. Vocabulary hints are not sent.",
   "207267a58d3542ba": "녹음을 멈추면 {environment}이(가) 녹음을 OpenRouter로 보냅니다. 모델을 실행할 곳은 OpenRouter가 정합니다. T3는 데이터 보존 안 함을 요청하지만, OpenRouter 계정 설정에 따라 안전 목적 보존이 허용될 수 있습니다.",
   "81b64c298285297c": "녹음을 멈추면 {environment}이(가) 녹음과 프로젝트 이름 등 어휘 힌트를 {provider}(으)로 보냅니다.",
   "615ce9f2edf7208f": "풀 리퀘스트 연결",
@@ -2559,10 +2560,9 @@
     },
     "에 설치"
   ],
+  "b4b98a0287c282e2": "다른 머신에 있어 이 머신의 에이전트가 읽을 수 없습니다. 제거하거나 원래대로 전환한 후 보내세요.",
   "5bbac0e5afeec779": "현재 스레드",
   "33c7e68fca089036": "스레드, {title}",
-  "b4b98a0287c282e2": "다른 머신에 있어 이 머신의 에이전트가 읽을 수 없습니다. 제거하거나 원래대로 전환한 후 보내세요.",
-  "c6196d99000642b4": "스레드 열기",
   "34cc63390ad793cc": "스레드 선택",
   "8f12309ead62e38a": "스레드 또는 프로젝트 검색...",
   "2f664754d005d9a7": "활성 스레드를 찾을 수 없습니다.",
@@ -2572,6 +2572,7 @@
   "a3178769f8308cbc": "스레드 실패",
   "89b5e8f3887812da": "게스트 요청",
   "62e626804919b294": "입력 필요",
+  "c6196d99000642b4": "스레드 열기",
   "826cb862b4a11fb3": "{label}:",
   "3e597ec938e7551b": "나:",
   "a1fbf2422c588292": "에이전트:",
@@ -3033,8 +3034,8 @@
   "6f85f14f35b3f547": "{environment}을(를) 통한 {provider}",
   "7c59a888a062a8bd": "음성 입력을 기록할 초안이 없습니다.",
   "62450481c00d2ef3": "초안의 환경을 사용할 수 없어 받아쓴 내용을 정리할 수 없습니다.",
-  "c64cb58d9cecbcd2": "받아쓴 내용 정리 실패",
   "0674544195fcdc39": "원본 받아쓰기 내용이 추가되었습니다.",
+  "c64cb58d9cecbcd2": "받아쓴 내용 정리 실패",
   "296496693cdac0db": "t3 명령을 사용할 수 없습니다.",
   "efbcef7bc9bbda01": "t3 명령 상태를 불러오지 못했습니다.",
   "1bf6910332426e62": "데스크톱 네트워크 액세스를 사용할 수 없습니다.",
@@ -3973,9 +3974,11 @@
   "973e99fa86d7f531": "대기열 메시지 {total}개 중 {position}번째, 보내지 않음",
   "0f6087c4f53c7f17": "이 메시지로 턴 시작({shortcut})",
   "adab89933af02669": "압축을 건너뛰고 이 메시지 보내기({shortcut})",
+  "d8aaf932f90429c4": "이 명령을 대기열 맨 앞으로 이동 ({shortcut})",
   "3de4016452e8d2bd": "현재 턴에 보내기({shortcut})",
   "259cc9568148e8ad": "이 메시지로 턴 시작",
   "bb7fddb812d5d29e": "압축을 건너뛰고 이 메시지 보내기",
+  "425ab15036aec8a4": "이 명령을 대기열 맨 앞으로 이동",
   "a5fe1ee609b29a9f": "현재 턴에 보내기",
   "2b7fd345e4f4fd6e": "대기열 메시지 편집 취소",
   "47f1726bf106d2c8": "대기열 메시지 편집",
@@ -7850,17 +7853,35 @@
     },
     "에 연결하세요."
   ],
+  "8b71f5c8ba160443": "Retry checking Codex sign-in",
   "1d33877ef8ea3559": "API 키 다시 불러오기",
-  "be805c1729dc0726": [
-    "OpenRouter 받아쓰기를 사용하려면 ",
+  "2b5b356019c6857b": [
+    "Update ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    "을(를) 업데이트하세요."
+    " to use ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " dictation."
   ],
+  "d17ec05b02778723": "Checking Codex sign-in…",
   "d7acad5dde4c1d1b": "API 키를 확인하는 중…",
+  "79de03af1ac0d0d2": [
+    "Sign in with the Codex CLI on ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ", then check again."
+  ],
+  "36cd63919d85bb60": "Check sign-in",
   "8257030da7a4ad4e": "모델",
   "418d9b293a8983a9": [
     {
@@ -12402,7 +12423,5 @@
   "27d76249d09eb69f": "검토 가이드 준비됨",
   "faa3bb26abb39c93": "검토 가이드 실패",
   "b7df38b7d8792d78": "가이드 열기",
-  "9e91e9a77b664e4e": "검토 가이드를 시작할 수 없습니다",
-  "d8aaf932f90429c4": "이 명령을 대기열 맨 앞으로 이동 ({shortcut})",
-  "425ab15036aec8a4": "이 명령을 대기열 맨 앞으로 이동"
+  "9e91e9a77b664e4e": "검토 가이드를 시작할 수 없습니다"
 }

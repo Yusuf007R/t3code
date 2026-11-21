@@ -391,7 +391,9 @@ export function CloudVoiceConfiguration({
               </p>
             ) : subscription && !saved ? (
               <p>
-                <T>Sign in with the Codex CLI on <Var>{environment.label}</Var>, then check again.</T>{" "}
+                <T>
+                  Sign in with the Codex CLI on <Var>{environment.label}</Var>, then check again.
+                </T>{" "}
                 <Button size="sm" variant="outline" onClick={refresh}>
                   <T>Check sign-in</T>
                 </Button>

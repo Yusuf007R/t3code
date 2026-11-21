@@ -118,9 +118,9 @@
   "c4eb2b21c8c58a54": "Normal",
   "f42c2a36b3507308": "{label} ativado",
   "77cc5f738cb7d459": "{label} desativado",
-  "2159a4897d4a4d73": "{runtime, select, codex {Atualize a CLI do Codex para {version} ou mais recente para usar {names}.} other {Atualize o {providerName} para {version} ou mais recente para usar {names}.}}",
-  "a0854b0f9604fc7b": "{runtime, select, codex {Usar {names} requer a CLI do Codex {version} ou mais recente, mas esta instalação só pode ser atualizada até {latestVersion}. Instale a CLI do Codex de outra forma ou aguarde uma versão mais recente.} other {Usar {names} requer {providerName} {version} ou mais recente, mas esta instalação só pode ser atualizada até {latestVersion}. Instale {providerName} de outra forma ou aguarde uma versão mais recente.}}",
   "aba3bb73ce212f0c": "Usar {names} requer {providerName} {version} ou mais recente, mas o cask claude-code do Homebrew só tem {latestVersion}. Mude para o cask claude-code@latest: {command}",
+  "a0854b0f9604fc7b": "{runtime, select, codex {Usar {names} requer a CLI do Codex {version} ou mais recente, mas esta instalação só pode ser atualizada até {latestVersion}. Instale a CLI do Codex de outra forma ou aguarde uma versão mais recente.} other {Usar {names} requer {providerName} {version} ou mais recente, mas esta instalação só pode ser atualizada até {latestVersion}. Instale {providerName} de outra forma ou aguarde uma versão mais recente.}}",
+  "2159a4897d4a4d73": "{runtime, select, codex {Atualize a CLI do Codex para {version} ou mais recente para usar {names}.} other {Atualize o {providerName} para {version} ou mais recente para usar {names}.}}",
   "d887bea446534de5": "Nenhum projeto neste ambiente consegue ler {host}/{repository}.",
   "4e466d60e2f7736b": "Cole a URL completa do pull request; esta thread não tem repositório para resolver o número.",
   "302625058bacbe38": "Cole uma URL completa; o host deste projeto não tem uma URL de {changeRequest} conhecida.",
@@ -1102,6 +1102,7 @@
   "4410caad205bcac7": "Este link aponta para um pull request que o T3 Code não consegue ler.",
   "df1915cc1c939ef9": "Este link não tem prompt.",
   "6024bfa21d5b2f40": "Este link aponta para um repositório que o T3 Code não consegue ler.",
+  "b94d3bb6a5e93225": "After you stop, {environment} sends the recording to ChatGPT using its Codex CLI sign-in. Vocabulary hints are not sent.",
   "207267a58d3542ba": "Depois que você parar, {environment} envia a gravação para o OpenRouter. O OpenRouter escolhe quem executa seu modelo. O T3 solicita retenção zero de dados; sua conta do OpenRouter pode permitir retenção por segurança.",
   "81b64c298285297c": "Depois que você parar, {environment} envia sua gravação e as dicas de vocabulário, incluindo nomes de projetos, para {provider}.",
   "615ce9f2edf7208f": "Vincular um pull request",
@@ -2560,10 +2561,9 @@
       "v": "v"
     }
   ],
+  "b4b98a0287c282e2": "Está em outra máquina, então o agente desta máquina não consegue lê-lo. Remova-o ou volte para enviar.",
   "5bbac0e5afeec779": "Thread atual",
   "33c7e68fca089036": "Thread, {title}",
-  "b4b98a0287c282e2": "Está em outra máquina, então o agente desta máquina não consegue lê-lo. Remova-o ou volte para enviar.",
-  "c6196d99000642b4": "Abrir thread",
   "34cc63390ad793cc": "Escolha uma thread",
   "8f12309ead62e38a": "Pesquisar threads ou projetos...",
   "2f664754d005d9a7": "Nenhuma thread ativa encontrada.",
@@ -2573,6 +2573,7 @@
   "a3178769f8308cbc": "A thread falhou",
   "89b5e8f3887812da": "Pedido de convidado",
   "62e626804919b294": "Resposta necessária",
+  "c6196d99000642b4": "Abrir thread",
   "826cb862b4a11fb3": "{label}:",
   "3e597ec938e7551b": "Você:",
   "a1fbf2422c588292": "Agente:",
@@ -3034,8 +3035,8 @@
   "6f85f14f35b3f547": "{provider} via {environment}",
   "7c59a888a062a8bd": "A entrada de voz não tem um rascunho onde gravar.",
   "62450481c00d2ef3": "O ambiente do rascunho não está disponível para limpar a transcrição.",
-  "c64cb58d9cecbcd2": "Falha ao limpar a transcrição",
   "0674544195fcdc39": "A transcrição original foi adicionada.",
+  "c64cb58d9cecbcd2": "Falha ao limpar a transcrição",
   "296496693cdac0db": "O comando t3 não está disponível.",
   "efbcef7bc9bbda01": "Falha ao carregar o estado do comando t3.",
   "1bf6910332426e62": "O acesso à rede do desktop não está disponível.",
@@ -3985,9 +3986,11 @@
   "973e99fa86d7f531": "Mensagem {position} de {total} na fila, não enviada",
   "0f6087c4f53c7f17": "Iniciar um turno com esta mensagem ({shortcut})",
   "adab89933af02669": "Pular a compactação e enviar esta mensagem ({shortcut})",
+  "d8aaf932f90429c4": "Mover este comando para o início da fila ({shortcut})",
   "3de4016452e8d2bd": "Enviar para o turno atual ({shortcut})",
   "259cc9568148e8ad": "Iniciar um turno com esta mensagem",
   "bb7fddb812d5d29e": "Pular a compactação e enviar esta mensagem",
+  "425ab15036aec8a4": "Mover este comando para o início da fila",
   "a5fe1ee609b29a9f": "Enviar para o turno atual",
   "2b7fd345e4f4fd6e": "Cancelar a edição da mensagem na fila",
   "47f1726bf106d2c8": "Editar mensagem na fila",
@@ -7883,17 +7886,35 @@
     },
     " com acesso ao ditado para continuar."
   ],
+  "8b71f5c8ba160443": "Retry checking Codex sign-in",
   "1d33877ef8ea3559": "Tentar carregar a chave de API novamente",
-  "be805c1729dc0726": [
-    "Atualize ",
+  "2b5b356019c6857b": [
+    "Update ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    " para usar o ditado do OpenRouter."
+    " to use ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " dictation."
   ],
+  "d17ec05b02778723": "Checking Codex sign-in…",
   "d7acad5dde4c1d1b": "Verificando se há uma chave de API…",
+  "79de03af1ac0d0d2": [
+    "Sign in with the Codex CLI on ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ", then check again."
+  ],
+  "36cd63919d85bb60": "Check sign-in",
   "8257030da7a4ad4e": "Modelo",
   "418d9b293a8983a9": [
     "Peça a um administrador de ",
@@ -12458,7 +12479,5 @@
   "27d76249d09eb69f": "Guia de revisão pronto",
   "faa3bb26abb39c93": "O guia de revisão falhou",
   "b7df38b7d8792d78": "Abrir guia",
-  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão",
-  "d8aaf932f90429c4": "Mover este comando para o início da fila ({shortcut})",
-  "425ab15036aec8a4": "Mover este comando para o início da fila"
+  "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão"
 }

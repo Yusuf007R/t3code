@@ -310,7 +310,9 @@ function CloudChoices({ environment, active, onClose }: Props & { onClose: () =>
                       ? gt("Update the environment to use Codex Subscription")
                       : key
                         ? gt("Uses the Codex CLI sign-in on this environment")
-                        : gt("Sign in with the Codex CLI on this environment, then tap to check again")
+                        : gt(
+                            "Sign in with the Codex CLI on this environment, then tap to check again",
+                          )
                   }
                   onPress={() => {
                     if (!key) return reload();

@@ -225,7 +225,8 @@ it("keeps local as the default and never reuses consent for an offline or resele
     chooseVoiceDestination(host, "codex");
     const subscription = appAtomRegistry.get(voiceRouteAtom)!.transcriber!;
     mocks.fetch.mockResolvedValueOnce(Response.json({ openai: true, xai: true, codex: false }));
-    await expect(subscription.prepare(options)).rejects.toMatchObject({
+    const missingLogin = await subscription.prepare(options);
+    await expect(missingLogin.start?.("file:///voice.m4a", options)).rejects.toMatchObject({
       code: "unavailable",
       message: expect.stringContaining("Sign in with the Codex CLI"),
     });

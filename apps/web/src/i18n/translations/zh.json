@@ -118,9 +118,9 @@
   "c4eb2b21c8c58a54": "普通",
   "f42c2a36b3507308": "{label} 开启",
   "77cc5f738cb7d459": "{label} 关闭",
-  "2159a4897d4a4d73": "{runtime, select, codex {请将 Codex CLI 更新到 {version} 或更高版本以使用 {names}。} other {请将 {providerName} 更新到 {version} 或更高版本以使用 {names}。}}",
-  "a0854b0f9604fc7b": "{runtime, select, codex {使用 {names} 需要 Codex CLI {version} 或更高版本，但此安装最多只能更新到 {latestVersion}。请通过其他方式安装 Codex CLI，或等待更新的版本发布。} other {使用 {names} 需要 {providerName} {version} 或更高版本，但此安装最多只能更新到 {latestVersion}。请通过其他方式安装 {providerName}，或等待更新的版本发布。}}",
   "aba3bb73ce212f0c": "使用 {names} 需要 {providerName} {version} 或更高版本，但 Homebrew 的 claude-code cask 只有 {latestVersion}。请切换到 claude-code@latest cask：{command}",
+  "a0854b0f9604fc7b": "{runtime, select, codex {使用 {names} 需要 Codex CLI {version} 或更高版本，但此安装最多只能更新到 {latestVersion}。请通过其他方式安装 Codex CLI，或等待更新的版本发布。} other {使用 {names} 需要 {providerName} {version} 或更高版本，但此安装最多只能更新到 {latestVersion}。请通过其他方式安装 {providerName}，或等待更新的版本发布。}}",
+  "2159a4897d4a4d73": "{runtime, select, codex {请将 Codex CLI 更新到 {version} 或更高版本以使用 {names}。} other {请将 {providerName} 更新到 {version} 或更高版本以使用 {names}。}}",
   "d887bea446534de5": "此环境中没有项目能读取 {host}/{repository}。",
   "4e466d60e2f7736b": "请粘贴完整的 pull request URL；此会话没有可用于解析编号的仓库。",
   "302625058bacbe38": "请粘贴完整 URL；此项目的托管平台没有已知的 {changeRequest} URL。",
@@ -1102,6 +1102,7 @@
   "4410caad205bcac7": "此链接指向 T3 Code 无法读取的 pull request。",
   "df1915cc1c939ef9": "此链接不包含提示词。",
   "6024bfa21d5b2f40": "此链接指向 T3 Code 无法读取的仓库。",
+  "b94d3bb6a5e93225": "After you stop, {environment} sends the recording to ChatGPT using its Codex CLI sign-in. Vocabulary hints are not sent.",
   "207267a58d3542ba": "停止录音后，{environment} 会将录音发送至 OpenRouter。OpenRouter 决定由谁运行模型。T3 会请求不保留数据；你的 OpenRouter 账户可能允许出于安全目的保留数据。",
   "81b64c298285297c": "停止后，{environment} 会将你的录音和词汇提示（包括项目名称）发送到 {provider}。",
   "615ce9f2edf7208f": "关联 PR",
@@ -2564,10 +2565,9 @@
       "v": "v"
     }
   ],
+  "b4b98a0287c282e2": "它在另一台机器上，本机的智能体读不到它。请移除它，或切回那台机器再发送。",
   "5bbac0e5afeec779": "当前会话",
   "33c7e68fca089036": "会话，{title}",
-  "b4b98a0287c282e2": "它在另一台机器上，本机的智能体读不到它。请移除它，或切回那台机器再发送。",
-  "c6196d99000642b4": "打开会话",
   "34cc63390ad793cc": "选择会话",
   "8f12309ead62e38a": "搜索会话或项目…",
   "2f664754d005d9a7": "未找到活动会话。",
@@ -2577,6 +2577,7 @@
   "a3178769f8308cbc": "会话失败",
   "89b5e8f3887812da": "访客请求",
   "62e626804919b294": "需要输入",
+  "c6196d99000642b4": "打开会话",
   "826cb862b4a11fb3": "{label}：",
   "3e597ec938e7551b": "你：",
   "a1fbf2422c588292": "智能体：",
@@ -3038,8 +3039,8 @@
   "6f85f14f35b3f547": "{provider}（经由 {environment}）",
   "7c59a888a062a8bd": "语音输入没有可录入的草稿。",
   "62450481c00d2ef3": "草稿所在环境不可用，无法整理转写内容。",
-  "c64cb58d9cecbcd2": "转写文本整理失败",
   "0674544195fcdc39": "已添加原始转写文本。",
+  "c64cb58d9cecbcd2": "转写文本整理失败",
   "296496693cdac0db": "t3 命令不可用。",
   "efbcef7bc9bbda01": "无法加载 t3 命令状态。",
   "1bf6910332426e62": "桌面网络访问不可用。",
@@ -3990,9 +3991,11 @@
   "973e99fa86d7f531": "排队消息 {position}/{total}，尚未发送",
   "0f6087c4f53c7f17": "用此消息开始一个轮次 ({shortcut})",
   "adab89933af02669": "跳过压缩并发送此消息 ({shortcut})",
+  "d8aaf932f90429c4": "将此命令移到队列最前面 ({shortcut})",
   "3de4016452e8d2bd": "发送到当前轮次 ({shortcut})",
   "259cc9568148e8ad": "用这条消息开始新一轮",
   "bb7fddb812d5d29e": "跳过压缩并发送这条消息",
+  "425ab15036aec8a4": "将此命令移到队列最前面",
   "a5fe1ee609b29a9f": "发送到当前这一轮",
   "2b7fd345e4f4fd6e": "取消编辑排队消息",
   "47f1726bf106d2c8": "编辑排队消息",
@@ -7901,17 +7904,35 @@
     },
     " 以继续。"
   ],
+  "8b71f5c8ba160443": "Retry checking Codex sign-in",
   "1d33877ef8ea3559": "重新加载 API 密钥",
-  "be805c1729dc0726": [
-    "请更新 ",
+  "2b5b356019c6857b": [
+    "Update ",
     {
       "i": 1,
       "k": "_gt_value_1",
       "v": "v"
     },
-    " 以使用 OpenRouter 听写。"
+    " to use ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " dictation."
   ],
+  "d17ec05b02778723": "Checking Codex sign-in…",
   "d7acad5dde4c1d1b": "正在检查 API 密钥…",
+  "79de03af1ac0d0d2": [
+    "Sign in with the Codex CLI on ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ", then check again."
+  ],
+  "36cd63919d85bb60": "Check sign-in",
   "8257030da7a4ad4e": "模型",
   "418d9b293a8983a9": [
     "请让 ",
@@ -12484,7 +12505,5 @@
   "27d76249d09eb69f": "审查导览已就绪",
   "faa3bb26abb39c93": "审查导览生成失败",
   "b7df38b7d8792d78": "打开导览",
-  "9e91e9a77b664e4e": "无法开始生成审查导览",
-  "d8aaf932f90429c4": "将此命令移到队列最前面 ({shortcut})",
-  "425ab15036aec8a4": "将此命令移到队列最前面"
+  "9e91e9a77b664e4e": "无法开始生成审查导览"
 }

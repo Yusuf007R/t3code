@@ -176,28 +176,31 @@ it("keeps the active provider's grant when editing its key", async () => {
   );
 });
 
-it("uses a provider's saved key without writing it, and turns dictation off", async () => {
-  chooseAudioDestination({ kind: "environment", environmentId: id });
-  await withVoicePanel(
-    (url) =>
-      url.pathname === "/api/voice/cloud/keys"
-        ? Promise.resolve(Response.json({ openai: false, xai: true }))
-        : null,
-    async (screen) => {
-      const destination = screen.getByRole("combobox", { name: "Transcribe with" });
-      await destination.click();
-      await page.getByRole("option", { name: "Grok Voice Transcribe via Laptop" }).click();
-      await page
-        .getByRole("dialog")
-        .getByRole("button", { name: "Use Grok Voice Transcribe" })
-        .click();
-      await expect.element(destination).toHaveTextContent("Grok Voice Transcribe via Laptop");
-      await destination.click();
-      await page.getByRole("option", { name: "Off", exact: true }).click();
-      await expect.element(destination).toHaveTextContent("Off");
-    },
-  );
-});
+it.each(["Grok Voice Transcribe", "Codex Subscription"])(
+  "uses %s's saved credentials without writing them, and turns dictation off",
+  async (label) => {
+    chooseAudioDestination({ kind: "environment", environmentId: id });
+    await withVoicePanel(
+      (url) =>
+        url.pathname === "/api/voice/cloud/keys"
+          ? Promise.resolve(Response.json({ openai: false, xai: true, codex: true }))
+          : null,
+      async (screen) => {
+        const destination = screen.getByRole("combobox", { name: "Transcribe with" });
+        await destination.click();
+        await page.getByRole("option", { name: `${label} via Laptop` }).click();
+        await page
+          .getByRole("dialog")
+          .getByRole("button", { name: `Use ${label}` })
+          .click();
+        await expect.element(destination).toHaveTextContent(`${label} via Laptop`);
+        await destination.click();
+        await page.getByRole("option", { name: "Off", exact: true }).click();
+        await expect.element(destination).toHaveTextContent("Off");
+      },
+    );
+  },
+);
 
 it("OpenRouter needs an exact model, and changing it writes no credential", async () => {
   chooseAudioDestination(null);
